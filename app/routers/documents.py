@@ -1,6 +1,6 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, status
-from fastapi.responses import PlainTextResponse
-from app.services.docx_parser import DocxParser, DocxParserError
+from fastapi.responses import PlainTextResponse, JSONResponse
+from app.services.docx_parser import DocxParser, DocxParserError, TokenLimitError
 import traceback
 import logging
 
@@ -62,6 +62,9 @@ async def extract_document_text(file: UploadFile = Depends(validate_docx_file)):
     - **file**: .docx file to parse
     
     Returns the plain text content of the document
+    
+    The output is sanitized to be JSON-compatible and can be used directly with the AI completion endpoint.
+    Token counting is performed to ensure the document is not too large for the configured OpenAI model.
     """
     try:
         # Read file content with proper error handling
@@ -91,6 +94,16 @@ async def extract_document_text(file: UploadFile = Depends(validate_docx_file)):
         # Extract the text from the document
         try:
             document_text = DocxParser.extract_text(content)
+        except TokenLimitError as e:
+            # Return a specific error for token limit issues
+            logger.warning(f"Token limit exceeded: {str(e)}")
+            return JSONResponse(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                content={
+                    "detail": str(e),
+                    "error_type": "token_limit_exceeded"
+                }
+            )
         except AssertionError as e:
             # Handle assertion errors from our validation
             logger.error(f"Validation error in parser: {str(e)}")

@@ -4,9 +4,16 @@ import io
 import os
 import re
 import sys
+import json
+from app.services.token_service import TokenService
+from app.config.settings import OpenAISettings
 
 class DocxParserError(Exception):
     """Custom exception for document parsing errors"""
+    pass
+
+class TokenLimitError(DocxParserError):
+    """Exception raised when document exceeds token limit"""
     pass
 
 class DocxParser:
@@ -62,17 +69,17 @@ class DocxParser:
     @staticmethod
     def extract_text(file_content: bytes) -> str:
         """
-        Extract text content from a .docx document, simulating what would be 
-        captured by a Select All + Copy operation in Word
+        Extract text content from a .docx document, ensuring the output is JSON-compatible
         
         Args:
             file_content: Binary content of the .docx file
             
         Returns:
-            String containing all text from the document
+            String containing all text from the document, sanitized for JSON compatibility
             
         Raises:
             DocxParserError: If there's an error parsing the document
+            TokenLimitError: If the document exceeds the configured token limit
         """
         # Input validation
         assert file_content is not None, "File content cannot be None"
@@ -150,6 +157,35 @@ class DocxParser:
             # Clean up excessive whitespace
             text = re.sub(r'\n{3,}', '\n\n', text)
             
+            # Apply JSON compatibility processing
+            text = DocxParser._make_json_compatible(text)
+            
+            # Verify JSON serialization works
+            try:
+                # Test if the text can be serialized as JSON
+                json.dumps({"prompt": text})
+            except Exception as e:
+                raise DocxParserError(f"Generated text is not JSON-compatible: {str(e)}")
+            
+            # Check token count against OpenAI max tokens
+            try:
+                # Get the max tokens from settings
+                settings = OpenAISettings()
+                token_result = TokenService.count_tokens(text, settings.default_model)
+                
+                # Verify token count is within limits
+                if token_result["token_count"] > settings.max_tokens:
+                    raise TokenLimitError(
+                        f"Document exceeds token limit: {token_result['token_count']} tokens "
+                        f"(limit: {settings.max_tokens}). Use the token counting endpoint "
+                        f"for more information."
+                    )
+            except Exception as e:
+                if isinstance(e, TokenLimitError):
+                    raise
+                # If there's another error with token counting, log it but don't block processing
+                print(f"Warning: Could not verify token count: {str(e)}")
+            
             # Output validation - empty documents just return empty string
             assert isinstance(text, str), "Result must be a string"
             
@@ -158,8 +194,47 @@ class DocxParser:
         except AssertionError as e:
             # Re-raise assertion errors for debugging
             raise
+        except DocxParserError:
+            # Re-raise our custom exceptions
+            raise
         except Exception as e:
             raise DocxParserError(f"Error extracting text from document: {str(e)}")
+    
+    @staticmethod
+    def _make_json_compatible(text: str) -> str:
+        """
+        Process text to ensure it's compatible with JSON serialization
+        
+        Args:
+            text: The original text to process
+            
+        Returns:
+            Processed text that can be safely serialized in JSON
+        """
+        if not text:
+            return text
+            
+        # Normalize line breaks to \n
+        text = text.replace('\r\n', '\n').replace('\r', '\n')
+        
+        # Replace problematic control characters
+        text = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', text)
+        
+        # Normalize whitespace (but preserve paragraph breaks)
+        text = re.sub(r' {2,}', ' ', text)
+        
+        # Replace non-ASCII quotes with ASCII ones
+        text = text.replace('"', '"').replace('"', '"')
+        text = text.replace(''', "'").replace(''', "'")
+        
+        # Replace other potentially problematic characters
+        text = text.replace('—', '--').replace('–', '-')
+        text = text.replace('…', '...')
+        
+        # Handle special characters that might be problematic in some contexts
+        # text = re.sub(r'[^\x20-\x7E\n]', '', text)  # More aggressive cleaning if needed
+        
+        return text
     
     @staticmethod
     def _get_title(doc: docx.Document) -> str:
@@ -250,8 +325,7 @@ class DocxParser:
             if core_properties.modified:
                 metadata["modified"] = str(core_properties.modified)
                 
-        except Exception:
-            # If we can't get metadata, just return an empty dict
-            pass
-            
-        return metadata 
+            return metadata
+        except:
+            # If metadata extraction fails, just return an empty dict
+            return {} 

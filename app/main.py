@@ -1,10 +1,10 @@
 from fastapi import FastAPI
-from app.routers import documents, ai
+from app.routers import documents, ai, tokens
 
 app = FastAPI(
     title="Document Parser & AI API",
     description="API for parsing .docx documents and generating AI completions",
-    version="0.2.0"
+    version="0.3.0"
 )
 
 # API versioning prefix
@@ -16,9 +16,15 @@ app.include_router(
     prefix=API_V1_PREFIX
 )
 
-# Include the new AI router
+# Include the AI router
 app.include_router(
     ai.router,
+    prefix=API_V1_PREFIX
+)
+
+# Include the new Tokens router
+app.include_router(
+    tokens.router,
     prefix=API_V1_PREFIX
 )
 

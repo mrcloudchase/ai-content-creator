@@ -7,6 +7,8 @@ A FastAPI application that parses .docx documents and generates AI completions u
 - Parse .docx documents
 - Extract text content while maintaining document structure
 - Generate AI completions using OpenAI API
+- Count tokens for text to assess OpenAI model compatibility
+- Automatic token limit validation
 - RESTful API with versioning
 - Health monitoring endpoint
 - Robust error handling and input validation
@@ -97,7 +99,9 @@ Returns the health status of the service.
 
 `POST /api/v1/documents/extract-text`
 
-Upload a .docx file to extract its text content.
+Upload a .docx file to extract its text content. The output is guaranteed to be JSON-compatible and can be directly used with the AI completions endpoint.
+
+The endpoint automatically checks token count against your configured `OPENAI_MAX_TOKENS` limit and returns an appropriate error if the document is too large.
 
 #### Request
 
@@ -114,6 +118,17 @@ Plain text content extracted from the document, including:
 - Headings
 - Lists (with bullet/numbering preserved)
 - Tables (formatted as text)
+
+#### Error Responses
+
+- **413 Request Entity Too Large**: Returned when the document's token count exceeds the configured `OPENAI_MAX_TOKENS` limit. The response includes the actual token count and the configured limit.
+
+```json
+{
+  "detail": "Document exceeds token limit: 2500 tokens (limit: 1000). Use the token counting endpoint for more information.",
+  "error_type": "token_limit_exceeded"
+}
+```
 
 ### Generate AI Completion
 
@@ -150,14 +165,56 @@ JSON object containing the generated text and usage statistics:
 }
 ```
 
+### Count Tokens
+
+`POST /api/v1/tokens/count`
+
+Count the number of tokens in a text string to check compatibility with OpenAI models.
+
+#### Request
+
+- Content-Type: application/json
+- Body:
+  ```json
+  {
+    "text": "Your text to count tokens for",
+    "model": "gpt-3.5-turbo"  // Optional, defaults to gpt-3.5-turbo
+  }
+  ```
+
+#### Response
+
+JSON object containing token count and context information:
+
+```json
+{
+  "token_count": 5,
+  "model": "gpt-3.5-turbo",
+  "model_limit": 4096,
+  "percentage_used": 0.12,
+  "tokens_remaining": 4091,
+  "is_near_limit": false,
+  "exceeds_limit": false
+}
+```
+
 #### Error Handling
 
-Both APIs include robust error handling for:
+All APIs include robust error handling for:
 
 - Invalid input formats
 - Empty input
 - Service unavailability 
 - Server errors
+
+## Common Workflow
+
+A typical workflow might include:
+
+1. Parse a document using the `extract-text` endpoint
+   - If the document is too large, you'll receive a 413 error with token information
+2. If successful, send the parsed text to the `ai/completions` endpoint to generate a response
+3. For debugging or to check token usage, use the `tokens/count` endpoint separately
 
 ## Project Structure
 
@@ -172,22 +229,29 @@ Both APIs include robust error handling for:
 │   ├── models/                  # Data models
 │   │   ├── __init__.py
 │   │   ├── document_models.py   # Document schemas
-│   │   └── ai_models.py         # AI completion schemas
+│   │   ├── ai_models.py         # AI completion schemas
+│   │   └── token_models.py      # Token counting schemas
 │   ├── routers/                 # API routes
 │   │   ├── __init__.py
 │   │   ├── documents.py         # Document endpoints
-│   │   └── ai.py                # AI endpoints
+│   │   ├── ai.py                # AI endpoints
+│   │   └── tokens.py            # Token counting endpoints
 │   └── services/                # Business logic
 │       ├── __init__.py
 │       ├── docx_parser.py       # Document parsing logic
-│       └── openai_service.py    # OpenAI integration
+│       ├── openai_service.py    # OpenAI integration
+│       └── token_service.py     # Token counting logic
 ├── tests/                       # Tests
 │   ├── __init__.py
 │   ├── conftest.py              # Test configuration
 │   ├── test_api.py              # Document API tests
 │   ├── test_docx_parser.py      # Parser tests
 │   ├── test_ai_api.py           # AI API tests
-│   └── test_openai_service.py   # OpenAI service tests
+│   ├── test_openai_service.py   # OpenAI service tests
+│   ├── test_token_api.py        # Token API tests
+│   ├── test_token_service.py    # Token service tests
+│   ├── test_token_limits.py     # Token limit tests
+│   └── test_integration.py      # Integration tests
 ├── server.py                    # Server entry point
 ├── requirements.txt             # Dependencies
 ├── .env-example                 # Example environment file
