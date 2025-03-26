@@ -1,15 +1,17 @@
-# Document Parser API
+# Document Parser & AI API
 
-A FastAPI application that parses .docx documents and returns their structured content, built using Test-Driven Development principles.
+A FastAPI application that parses .docx documents and generates AI completions using OpenAI, built using Test-Driven Development principles.
 
 ## Features
 
 - Parse .docx documents
 - Extract text content while maintaining document structure
+- Generate AI completions using OpenAI API
 - RESTful API with versioning
 - Health monitoring endpoint
 - Robust error handling and input validation
 - Comprehensive test suite
+- Environment-based configuration
 
 ## Development Approach
 
@@ -20,18 +22,7 @@ This application follows Test-Driven Development (TDD) principles:
 3. Edge cases are thoroughly tested
 4. Continuous validation through an extensive test suite
 
-## Prerequisites
-
-### For Standard Installation
-- Python 3.9+ installed
-
-### For Docker Installation
-- Docker installed and running (see [Docker installation guide](https://docs.docker.com/get-docker/))
-- Docker Compose installed (comes with Docker Desktop for Mac and Windows)
-
 ## Installation
-
-### Standard Installation
 
 1. Clone the repository
 2. Create a virtual environment:
@@ -47,41 +38,24 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### Docker Installation
+4. Configure environment variables:
 
-1. Ensure Docker is installed and running
-2. Clone the repository
-3. Build and run the Docker container:
+Create a `.env` file based on the provided `.env-example`:
 
-```bash
-# Using docker-compose
-docker-compose up -d
-
-# Or using newer Docker Compose CLI
-docker compose up -d
-
-# View logs
-docker compose logs -f
 ```
+# OpenAI Configuration
+OPENAI_API_KEY=your_openai_api_key
+OPENAI_ORGANIZATION=your_openai_org_id  # Optional
+OPENAI_DEFAULT_MODEL=gpt-3.5-turbo
+OPENAI_MAX_TOKENS=1000
+OPENAI_TEMPERATURE=0.7
 
-#### Using the Helper Script
-
-For convenience, you can use the provided helper script:
-
-```bash
-# Make the script executable (first time only)
-chmod +x docker-run.sh
-
-# Start the application
-./docker-run.sh start
-
-# View all available commands
-./docker-run.sh
+# Server Configuration
+HOST=0.0.0.0
+PORT=8000
 ```
 
 ## Running the application
-
-### Standard Method
 
 Start the server:
 
@@ -91,26 +65,7 @@ python server.py
 
 The server will start at http://localhost:8000.
 
-### Using Docker
-
-```bash
-# Start the application
-docker compose up -d
-
-# Using the helper script
-./docker-run.sh start
-
-# Stop the application
-docker compose down
-# or
-./docker-run.sh stop
-```
-
-The server will be accessible at http://localhost:8000.
-
 ## Running Tests
-
-### Standard Method
 
 Run the comprehensive test suite:
 
@@ -122,20 +77,6 @@ For detailed test output:
 
 ```bash
 pytest -v
-```
-
-### Using Docker
-
-```bash
-# Run tests
-docker compose exec api pytest
-# or
-./docker-run.sh test
-
-# Run tests with verbose output
-docker compose exec api pytest -v
-# or
-./docker-run.sh test-v
 ```
 
 ## API Endpoints
@@ -174,14 +115,48 @@ Plain text content extracted from the document, including:
 - Lists (with bullet/numbering preserved)
 - Tables (formatted as text)
 
+### Generate AI Completion
+
+`POST /api/v1/ai/completions`
+
+Send a prompt to OpenAI to generate a completion.
+
+#### Request
+
+- Content-Type: application/json
+- Body:
+  ```json
+  {
+    "prompt": "Your text prompt here",
+    "model": "gpt-3.5-turbo",  // Optional, defaults to configured model
+    "max_tokens": 500,         // Optional, defaults to 1000
+    "temperature": 0.7         // Optional, defaults to 0.7
+  }
+  ```
+
+#### Response
+
+JSON object containing the generated text and usage statistics:
+
+```json
+{
+  "text": "Generated text response from OpenAI",
+  "model": "gpt-3.5-turbo",
+  "usage": {
+    "prompt_tokens": 10,
+    "completion_tokens": 100,
+    "total_tokens": 110
+  }
+}
+```
+
 #### Error Handling
 
-The API includes robust error handling for:
+Both APIs include robust error handling for:
 
-- Invalid file formats
-- Empty documents
-- Malformed documents
-- Missing files
+- Invalid input formats
+- Empty input
+- Service unavailability 
 - Server errors
 
 ## Project Structure
@@ -190,24 +165,36 @@ The API includes robust error handling for:
 .
 ├── app/
 │   ├── __init__.py
-│   ├── main.py              # FastAPI application
-│   ├── models/              # Data models
+│   ├── main.py                  # FastAPI application
+│   ├── config/                  # Configuration
 │   │   ├── __init__.py
-│   │   └── document_models.py
-│   ├── routers/             # API routes
+│   │   └── settings.py          # Environment settings
+│   ├── models/                  # Data models
 │   │   ├── __init__.py
-│   │   └── documents.py
-│   └── services/            # Business logic
+│   │   ├── document_models.py   # Document schemas
+│   │   └── ai_models.py         # AI completion schemas
+│   ├── routers/                 # API routes
+│   │   ├── __init__.py
+│   │   ├── documents.py         # Document endpoints
+│   │   └── ai.py                # AI endpoints
+│   └── services/                # Business logic
 │       ├── __init__.py
-│       └── docx_parser.py
-├── tests/                   # Tests
+│       ├── docx_parser.py       # Document parsing logic
+│       └── openai_service.py    # OpenAI integration
+├── tests/                       # Tests
 │   ├── __init__.py
-│   ├── test_api.py          # API endpoint tests
-│   └── test_docx_parser.py  # Document parser tests
-├── Dockerfile               # Docker image definition
-├── docker-compose.yml       # Docker Compose configuration
-├── docker-run.sh            # Helper script for Docker operations
-├── server.py                # Server entry point
-├── requirements.txt         # Dependencies
-└── README.md                # Documentation
-``` 
+│   ├── conftest.py              # Test configuration
+│   ├── test_api.py              # Document API tests
+│   ├── test_docx_parser.py      # Parser tests
+│   ├── test_ai_api.py           # AI API tests
+│   └── test_openai_service.py   # OpenAI service tests
+├── server.py                    # Server entry point
+├── requirements.txt             # Dependencies
+├── .env-example                 # Example environment file
+├── pytest.ini                   # Test configuration
+└── README.md                    # Documentation
+```
+
+## GitHub Repository
+
+The code is available at: https://github.com/mrcloudchase/docx-parser-api.git 

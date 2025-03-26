@@ -1,25 +1,31 @@
 from fastapi import FastAPI
-from app.routers import documents
+from app.routers import documents, ai
 
 app = FastAPI(
-    title="Document Parser API",
-    description="API for parsing .docx documents and maintaining their structure",
-    version="0.1.0"
+    title="Document Parser & AI API",
+    description="API for parsing .docx documents and generating AI completions",
+    version="0.2.0"
 )
 
 # API versioning prefix
 API_V1_PREFIX = "/api/v1"
 
-# Apply version prefix to document routes
+# Apply version prefix to routes
 app.include_router(
     documents.router,
+    prefix=API_V1_PREFIX
+)
+
+# Include the new AI router
+app.include_router(
+    ai.router,
     prefix=API_V1_PREFIX
 )
 
 @app.get("/")
 async def root():
     return {
-        "name": "Document Parser API",
+        "name": "Document Parser & AI API",
         "version": app.version,
         "documentation": "/docs",
         "endpoints": {
