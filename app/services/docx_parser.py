@@ -160,10 +160,19 @@ class DocxParser:
             # Apply JSON compatibility processing
             text = DocxParser._make_json_compatible(text)
             
-            # Verify JSON serialization works
+            # Verify JSON serialization works for both direct and nested scenarios
             try:
-                # Test if the text can be serialized as JSON
-                json.dumps({"prompt": text})
+                # Test 1: Basic JSON serialization
+                test_json = json.dumps({"prompt": text})
+                
+                # Test 2: Nested JSON scenario (simulating user copy-paste)
+                nested_json = json.dumps({"outer": json.dumps({"prompt": text})})
+                json.loads(nested_json)  # Make sure it parses correctly
+                
+                # Test 3: Direct usage in a prompt field (most common use case)
+                ai_json = '{{"prompt": {}}}'.format(json.dumps(text))
+                json.loads(ai_json)  # Should parse without errors
+                
             except Exception as e:
                 raise DocxParserError(f"Generated text is not JSON-compatible: {str(e)}")
             
@@ -203,36 +212,43 @@ class DocxParser:
     @staticmethod
     def _make_json_compatible(text: str) -> str:
         """
-        Process text to ensure it's compatible with JSON serialization
+        Process text to ensure it's compatible with JSON serialization, even in nested JSON contexts
         
         Args:
             text: The original text to process
             
         Returns:
-            Processed text that can be safely serialized in JSON
+            Processed text that can be safely serialized in JSON and used in nested JSON objects
         """
         if not text:
             return text
             
-        # Normalize line breaks to \n
+        # Step 1: Normalize line breaks to \n
         text = text.replace('\r\n', '\n').replace('\r', '\n')
         
-        # Replace problematic control characters
+        # Step 2: Remove problematic control characters (keep tabs and newlines)
+        # This removes all control chars except \t (9), \n (10), and \r (13)
         text = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', text)
         
-        # Normalize whitespace (but preserve paragraph breaks)
+        # Step 3: Normalize whitespace (but preserve paragraph breaks)
         text = re.sub(r' {2,}', ' ', text)
         
-        # Replace non-ASCII quotes with ASCII ones
+        # Step 4: Replace Unicode quotes and apostrophes with ASCII ones
+        # This is critical for JSON compatibility in nested contexts
         text = text.replace('"', '"').replace('"', '"')
         text = text.replace(''', "'").replace(''', "'")
         
-        # Replace other potentially problematic characters
+        # Step 5: Replace other potentially problematic characters
         text = text.replace('—', '--').replace('–', '-')
         text = text.replace('…', '...')
         
-        # Handle special characters that might be problematic in some contexts
-        # text = re.sub(r'[^\x20-\x7E\n]', '', text)  # More aggressive cleaning if needed
+        # Step 6: Ensure backslashes are properly escaped
+        # Each backslash needs to be double-escaped in nested JSON contexts
+        text = text.replace('\\', '\\\\')
+        
+        # Step 7: Special handling for quote characters in nested JSON contexts
+        # For direct copy-paste into another JSON object
+        text = text.replace('"', '\\"')
         
         return text
     

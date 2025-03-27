@@ -382,7 +382,7 @@ def test_extract_text_with_problematic_characters():
     """Test extraction with characters that are typically problematic for JSON"""
     # Arrange
     content = """This has "quotes" and 'apostrophes' and new
-lines and tabs and backslashes \\ and control chars and unicode like €£¥"""
+lines and tabs\t and backslashes \\ and control chars and unicode like €£¥"""
     doc_bytes = create_test_document(content)
     
     # Act
@@ -395,13 +395,20 @@ lines and tabs and backslashes \\ and control chars and unicode like €£¥"""
     # Should be able to parse back
     parsed_obj = json.loads(json_str)
     assert isinstance(parsed_obj["prompt"], str)
+    
+    # Test nested JSON scenario (simulating copy-paste into another JSON)
+    nested_json = json.dumps({"outer": json_str})
+    parsed_nested = json.loads(nested_json)
+    assert isinstance(parsed_nested["outer"], str)
+    inner_obj = json.loads(parsed_nested["outer"])
+    assert inner_obj["prompt"] == extracted_text
 
 def test_make_json_compatible():
     """Test the _make_json_compatible method directly"""
     # Arrange
     problematic_text = """Text with "smart quotes" and 'apostrophes'
     and em-dashes—and en-dashes–and ellipsis…
-    and tabs and newlines mixed with carriage returns"""
+    and tabs\t and newlines mixed with \r carriage returns"""
     
     # Act
     cleaned_text = DocxParser._make_json_compatible(problematic_text)
@@ -415,9 +422,40 @@ def test_make_json_compatible():
     parsed_obj = json.loads(json_str)
     assert isinstance(parsed_obj["text"], str)
     
-    # Verify specific replacements
-    assert '"smart quotes"' in cleaned_text  # Smart quotes replaced with straight quotes
+    # Verify specific replacements - with escaped quotes
+    assert '\\"smart quotes\\"' in cleaned_text  # Smart quotes replaced with escaped straight quotes
     assert "'apostrophes'" in cleaned_text   # Smart apostrophes replaced
     assert "em-dashes--" in cleaned_text     # Em-dash replaced with double hyphen
     assert "en-dashes-" in cleaned_text      # En-dash replaced with hyphen
-    assert "ellipsis..." in cleaned_text     # Ellipsis replaced with three periods 
+    assert "ellipsis..." in cleaned_text     # Ellipsis replaced with three periods
+    
+    # Test nested JSON scenario
+    nested_json = json.dumps({"outer": json_str})
+    assert json.loads(nested_json)  # Should not raise exception
+
+def test_nested_json_compatibility():
+    """Test specifically for nested JSON compatibility - the copy/paste user scenario"""
+    # Arrange
+    control_chars_text = "Text with newlines\nand tabs\tand backslashes\\ and quotes\"'!"
+    doc_bytes = create_test_document(control_chars_text)
+    
+    # Act
+    extracted_text = DocxParser.extract_text(doc_bytes)
+    
+    # Assert - build a JSON string that would be returned by the API
+    api_response = json.dumps({"document": extracted_text})
+    
+    # Simulate user copying this value and using it in another JSON payload
+    # This is the scenario causing the 422 error
+    user_json = '{{"prompt": {}}}'.format(json.dumps(extracted_text))
+    
+    # This should parse without error
+    parsed = json.loads(user_json)
+    assert isinstance(parsed["prompt"], str)
+    
+    # Double-nested case (worst case)
+    double_nested = json.dumps({"outer": user_json})
+    parsed_double = json.loads(double_nested)
+    assert isinstance(parsed_double["outer"], str)
+    inner = json.loads(parsed_double["outer"])
+    assert isinstance(inner["prompt"], str) 

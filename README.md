@@ -9,6 +9,7 @@ A FastAPI application that parses .docx documents and generates AI completions u
 - Generate AI completions using OpenAI API
 - Count tokens for text to assess OpenAI model compatibility
 - Automatic token limit validation
+- JSON-structured document output ready for AI integration
 - RESTful API with versioning
 - Health monitoring endpoint
 - Robust error handling and input validation
@@ -99,7 +100,7 @@ Returns the health status of the service.
 
 `POST /api/v1/documents/extract-text`
 
-Upload a .docx file to extract its text content. The output is guaranteed to be JSON-compatible and can be directly used with the AI completions endpoint.
+Upload a .docx file to extract its text content. The endpoint returns a JSON object with a "document" field containing the extracted text. This format is designed for direct integration with the AI completions endpoint.
 
 The endpoint automatically checks token count against your configured `OPENAI_MAX_TOKENS` limit and returns an appropriate error if the document is too large.
 
@@ -111,8 +112,15 @@ The endpoint automatically checks token count against your configured `OPENAI_MA
 
 #### Response
 
-Plain text content extracted from the document, including:
+JSON object containing the parsed document text:
 
+```json
+{
+  "document": "The extracted text content from the document with all paragraphs, headings, lists, and tables preserved."
+}
+```
+
+The output includes:
 - Document text
 - Paragraphs
 - Headings
@@ -213,8 +221,37 @@ A typical workflow might include:
 
 1. Parse a document using the `extract-text` endpoint
    - If the document is too large, you'll receive a 413 error with token information
-2. If successful, send the parsed text to the `ai/completions` endpoint to generate a response
+   - If successful, you'll get a JSON response with a `document` field containing the parsed text
+2. Extract the `document` field from the response and send it as the `prompt` in a request to the `ai/completions` endpoint
 3. For debugging or to check token usage, use the `tokens/count` endpoint separately
+
+### Integration Example
+
+```python
+import requests
+
+# 1. Parse the document
+with open('example.docx', 'rb') as f:
+    parse_response = requests.post(
+        'http://localhost:8000/api/v1/documents/extract-text',
+        files={'file': f}
+    )
+
+if parse_response.status_code == 200:
+    # 2. Extract the document text
+    document_text = parse_response.json()['document']
+    
+    # 3. Send to AI endpoint
+    ai_response = requests.post(
+        'http://localhost:8000/api/v1/ai/completions',
+        json={'prompt': document_text}
+    )
+    
+    # 4. Process AI response
+    if ai_response.status_code == 200:
+        ai_result = ai_response.json()
+        print(f"AI Response: {ai_result['text']}")
+```
 
 ## Project Structure
 

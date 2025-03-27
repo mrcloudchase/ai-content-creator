@@ -65,8 +65,14 @@ def test_document_parser_token_limit(token_limit_exceeded):
         
         # If we expect an error, verify it's the token limit error
         if token_limit_exceeded:
-            assert "token_limit_exceeded" in response.json()["error_type"]
-            assert "Document exceeds token limit" in response.json()["detail"]
+            json_response = response.json()
+            assert "token_limit_exceeded" in json_response["error_type"]
+            assert "Document exceeds token limit" in json_response["detail"]
+        else:
+            # For successful response, check for document field
+            json_response = response.json()
+            assert "document" in json_response
+            assert json_response["document"] == "This is the extracted text."
     finally:
         # Restore the original method
         DocxParser.extract_text = original_extract_text
@@ -86,4 +92,5 @@ def test_very_large_document_real_tokens():
     # Check the response - we expect 413 because the document should be large enough
     # to exceed the default max_tokens (usually 1000)
     assert response.status_code == 413
-    assert "token_limit_exceeded" in response.json()["error_type"] 
+    json_response = response.json()
+    assert "token_limit_exceeded" in json_response["error_type"] 

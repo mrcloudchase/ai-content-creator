@@ -63,7 +63,9 @@ async def test_document_parser_to_ai_workflow(mock_openai):
     
     # Check if parsing was successful
     assert parse_response.status_code == 200
-    parsed_text = parse_response.text
+    parsed_data = parse_response.json()
+    assert "document" in parsed_data
+    parsed_text = parsed_data["document"]
     
     # Step 2: Send the parsed text to the AI endpoint
     ai_response = client.post(
@@ -104,7 +106,9 @@ async def test_document_with_special_chars(mock_openai):
     
     # Check if parsing was successful
     assert parse_response.status_code == 200
-    parsed_text = parse_response.text
+    parsed_data = parse_response.json()
+    assert "document" in parsed_data
+    parsed_text = parsed_data["document"]
     
     # Step 2: Send the parsed text to the AI endpoint
     ai_response = client.post(

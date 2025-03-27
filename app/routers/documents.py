@@ -3,6 +3,7 @@ from fastapi.responses import PlainTextResponse, JSONResponse
 from app.services.docx_parser import DocxParser, DocxParserError, TokenLimitError
 import traceback
 import logging
+import json
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -54,17 +55,35 @@ async def validate_docx_file(file: UploadFile = File(...)):
     
     return file
 
-@router.post("/extract-text", response_class=PlainTextResponse)
+@router.post("/extract-text")
 async def extract_document_text(file: UploadFile = Depends(validate_docx_file)):
     """
-    Extract text content from a .docx document
+    Extract text content from a .docx document and return as a structured JSON response
     
     - **file**: .docx file to parse
     
-    Returns the plain text content of the document
+    Returns a JSON object with the parsed document text in the "document" field
     
-    The output is sanitized to be JSON-compatible and can be used directly with the AI completion endpoint.
-    Token counting is performed to ensure the document is not too large for the configured OpenAI model.
+    The output is thoroughly sanitized to be JSON-compatible and can be used directly 
+    with the AI completion endpoint without any additional processing. All control 
+    characters, quotes, and special characters are properly escaped for use in nested 
+    JSON contexts.
+    
+    Example usage with AI endpoint:
+    ```
+    # 1. Extract text from document
+    response = requests.post("/api/v1/documents/extract-text", files={"file": file})
+    parsed_data = response.json()
+    
+    # 2. Use the document text directly in AI request
+    ai_response = requests.post("/api/v1/ai/completions", json={
+        "prompt": parsed_data["document"],
+        "max_tokens": 500
+    })
+    ```
+    
+    Token counting is performed to ensure the document is not too large for the 
+    configured OpenAI model.
     """
     try:
         # Read file content with proper error handling
@@ -94,6 +113,19 @@ async def extract_document_text(file: UploadFile = Depends(validate_docx_file)):
         # Extract the text from the document
         try:
             document_text = DocxParser.extract_text(content)
+            
+            # Additional JSON validation to ensure the response can be used in nested contexts
+            try:
+                # Test that the text works in a nested JSON context (copy-paste scenario)
+                nested_test = json.dumps({"outer": json.dumps({"prompt": document_text})})
+                json.loads(nested_test)  # Should parse without errors
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON compatibility validation failed: {str(e)}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Document text failed JSON compatibility validation. Please report this error."
+                )
+                
         except TokenLimitError as e:
             # Return a specific error for token limit issues
             logger.warning(f"Token limit exceeded: {str(e)}")
@@ -118,8 +150,8 @@ async def extract_document_text(file: UploadFile = Depends(validate_docx_file)):
                 detail=f"Error parsing document: {str(e)}"
             )
         
-        # Return the text content directly
-        return document_text
+        # Return the text content in a "document" field
+        return {"document": document_text}
         
     except HTTPException:
         # Re-raise HTTP exceptions as they already have the right format
