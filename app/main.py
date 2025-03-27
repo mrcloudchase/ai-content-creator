@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from app.routers import documents, ai, tokens
+from app.routers import customer_intent
 
 app = FastAPI(
     title="Document Parser & AI API",
@@ -25,6 +26,12 @@ app.include_router(
 # Include the new Tokens router
 app.include_router(
     tokens.router,
+    prefix=API_V1_PREFIX
+)
+
+# Include the Customer Intent router
+app.include_router(
+    customer_intent.router,
     prefix=API_V1_PREFIX
 )
 
