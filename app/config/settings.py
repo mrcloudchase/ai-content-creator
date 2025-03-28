@@ -12,7 +12,7 @@ class OpenAISettings(BaseSettings):
     api_key: str
     organization: Optional[str] = None
     default_model: str = "gpt-3.5-turbo"
-    max_tokens: int = 1000
+    max_tokens: int = 4096
     temperature: float = 0.7
     
     @field_validator('api_key')

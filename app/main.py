@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from app.routers import documents, ai, tokens
 from app.routers import customer_intent
+from app.routers import markdown
 
 app = FastAPI(
     title="Document Parser & AI API",
@@ -32,6 +33,12 @@ app.include_router(
 # Include the Customer Intent router
 app.include_router(
     customer_intent.router,
+    prefix=API_V1_PREFIX
+)
+
+# Include the Markdown router
+app.include_router(
+    markdown.router,
     prefix=API_V1_PREFIX
 )
 

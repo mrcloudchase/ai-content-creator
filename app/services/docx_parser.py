@@ -182,11 +182,15 @@ class DocxParser:
                 settings = OpenAISettings()
                 token_result = TokenService.count_tokens(text, settings.default_model)
                 
+                # Define a more generous token limit for document inputs
+                # This is separate from the OpenAI completion output limit
+                DOCUMENT_TOKEN_LIMIT = 8192  # Allow documents up to 8k tokens
+                
                 # Verify token count is within limits
-                if token_result["token_count"] > settings.max_tokens:
+                if token_result["token_count"] > DOCUMENT_TOKEN_LIMIT:
                     raise TokenLimitError(
                         f"Document exceeds token limit: {token_result['token_count']} tokens "
-                        f"(limit: {settings.max_tokens}). Use the token counting endpoint "
+                        f"(limit: {DOCUMENT_TOKEN_LIMIT}). Use the token counting endpoint "
                         f"for more information."
                     )
             except Exception as e:
