@@ -1,69 +1,60 @@
-from fastapi import FastAPI
-from app.routers import documents, ai, tokens
-from app.routers import customer_intent
-from app.routers import markdown
+from fastapi import FastAPI, Request
+from app.ai.customer_intent.routers.ai_customer_intent_router import router as customer_intent_router
+from app.shared.logging import setup_app_logging, LoggingMiddleware, app_logger
+
+# Set up application logging
+logger = setup_app_logging()
+logger.info("Starting AI Content Developer API")
 
 app = FastAPI(
-    title="Document Parser & AI API",
-    description="API for parsing .docx documents and generating AI completions",
-    version="0.3.0"
+    title="AI Content Developer API",
+    description="API application for generating AI content",
+    version="0.4.0"
 )
+
+# Add logging middleware
+app.add_middleware(LoggingMiddleware)
 
 # API versioning prefix
 API_V1_PREFIX = "/api/v1"
 
-# Apply version prefix to routes
+# Include the Customer Intent router with proper prefix
 app.include_router(
-    documents.router,
-    prefix=API_V1_PREFIX
-)
-
-# Include the AI router
-app.include_router(
-    ai.router,
-    prefix=API_V1_PREFIX
-)
-
-# Include the new Tokens router
-app.include_router(
-    tokens.router,
-    prefix=API_V1_PREFIX
-)
-
-# Include the Customer Intent router
-app.include_router(
-    customer_intent.router,
-    prefix=API_V1_PREFIX
-)
-
-# Include the Markdown router
-app.include_router(
-    markdown.router,
+    customer_intent_router,
     prefix=API_V1_PREFIX
 )
 
 @app.get("/")
-async def root():
+async def root(request: Request):
+    # Use the request-specific logger if available
+    logger = getattr(request.state, "logger", app_logger)
+    logger.info("Root endpoint accessed")
+    
     return {
-        "name": "Document Parser & AI API",
+        "name": "AI Content Developer API",
         "version": app.version,
         "documentation": "/docs",
         "endpoints": {
             "health": "/health",
-            "api_base": API_V1_PREFIX
+            "api_base": API_V1_PREFIX,
+            "customer_intent": f"{API_V1_PREFIX}/customer-intent - Upload a document to generate customer intent statement"
         }
     }
 
 @app.get("/health", status_code=200)
-async def health_check():
+async def health_check(request: Request):
     """
     Health check endpoint to verify the service is running
     
     Returns:
         Dict: Status information about the service
     """
+    # Use the request-specific logger if available
+    logger = getattr(request.state, "logger", app_logger)
+    logger.debug("Health check endpoint accessed")
+    
     return {
         "status": "healthy",
-        "service": "document-parser-api",
+        "service": "ai-content-developer-api",
         "version": app.version
     } 
