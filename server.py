@@ -5,7 +5,7 @@ import sys
 if __name__ == "__main__":
     # Get configuration from environment variables
     host = os.getenv("HOST", "0.0.0.0")
-    port = int(os.getenv("PORT", "8080"))
+    port = int(os.getenv("PORT", "8000"))
     
     # Determine if in development or production
     # In Azure App Service / Docker, we don't want auto-reload

@@ -91,7 +91,7 @@ You can use cURL to test the API from the command line:
 ```bash
 curl -X POST \
   -F "file=@/path/to/your/document.docx" \
-  https://your-app-name.azurewebsites.net/api/v1/customer-intent
+  https://url/api/v1/customer-intent
 ```
 
 Where:
@@ -286,21 +286,44 @@ When a file is uploaded to the API endpoint, the following execution sequence oc
    ```bash
    cp .env-example .env
    ```
-   
-   Edit the `.env` file with your OpenAI API key and other settings:
-   ```
-   OPENAI_API_KEY=your_api_key_here
-   OPENAI_DEFAULT_MODEL=gpt-4  # Or your preferred model
-   OPENAI_TEMPERATURE=0.7
-   
-   # Logging Configuration
+      # ===== Configuration Toggle =====
+   # To switch between OpenAI and Azure OpenAI:
+   # 1. Comment out the section you DON'T want to use (add # at the beginning of each line)
+   # 2. Uncomment the section you DO want to use (remove # from the beginning of each line)
+   # 3. Restart the application after changing the configuration
+
+   # ===== Standard OpenAI Configuration =====
+   # Uncomment these settings to use standard OpenAI
+   OPENAI_API_KEY=sk-your-api-key-here
+   OPENAI_ORGANIZATION=org-your-org-id-here  # Optional
+
+   # ===== Azure OpenAI Configuration =====
+   # Uncomment these settings to use Azure OpenAI with managed identity
+   # AZURE_OPENAI_ENDPOINT=https://your-resource-name.openai.azure.com/
+   # AZURE_OPENAI_DEPLOYMENT_NAME=your-deployment-name
+   # AZURE_OPENAI_API_VERSION=2023-12-01-preview
+
+   # ===== Shared Settings =====
+   # These settings apply to both OpenAI and Azure OpenAI
+   DEFAULT_MODEL=gpt-4  # Used for both OpenAI and for tokenization estimation with Azure
+   MAX_TOKENS=4000
+   TEMPERATURE=0.7
+
+   # ===== Application Settings =====
+   # Server configuration
+   HOST=0.0.0.0
+   PORT=8000
+
+   # Logging configuration
+   LOG_LEVEL=INFO
+   LOG_FORMAT=json
    APP_LOGGING_LOG_LEVEL=info
    APP_LOGGING_LOG_TO_CONSOLE=true
    APP_LOGGING_LOG_TO_FILE=false
    APP_LOGGING_LOG_DIR=logs
    APP_LOGGING_LOG_FILE_NAME=ai_content_developer.log
    APP_LOGGING_MAX_LOG_FILE_SIZE_MB=5
-   APP_LOGGING_BACKUP_COUNT=3
+   APP_LOGGING_BACKUP_COUNT=3 
    ```
 
 ### Running the Application
@@ -446,11 +469,13 @@ The application can be containerized for consistent deployment. Build the Docker
 docker build --platform linux/amd64 -t ai-content-creator:latest .
 ```
 
+> **Important**: Always use `--platform=linux/amd64` when building on ARM-based machines (like Apple Silicon Macs) to ensure compatibility with Azure App Service, which runs on x86_64 architecture.
+
 ### Running Locally with Docker
 
 #### Using Standard OpenAI API:
 ```bash
-docker run -p 8080:80 \
+docker run -p 8000:80 \
   -e OPENAI_API_KEY="your-api-key" \
   -e OPENAI_DEFAULT_MODEL="gpt-4" \
   -e MAX_TOKENS="4000" \
@@ -460,9 +485,9 @@ docker run -p 8080:80 \
 
 #### Using Azure OpenAI with Your Azure Credentials:
 ```bash
-docker run -p 8080:80 \
+docker run -p 8000:80 \
   -e AZURE_OPENAI_ENDPOINT="https://your-resource-name.openai.azure.com/" \
-  -e AZURE_OPENAI_DEPLOYMENT_NAME="your-deployment-name" \
+  -e AZURE_OPENAI_DEPLOYMENT_NAME="deployment_name" \
   -e AZURE_OPENAI_API_VERSION="2023-12-01-preview" \
   -e OPENAI_DEFAULT_MODEL="gpt-4" \
   -e MAX_TOKENS="4000" \
@@ -472,7 +497,25 @@ docker run -p 8080:80 \
   ai-content-creator:latest
 ```
 
-Access the application at http://localhost:8080 - including the documentation at http://localhost:8080/docs
+Access the application at http://localhost:8000 - including the documentation at http://localhost:8000/docs
+
+### Environment Variables
+
+| Environment Variable | Description | Example Value |
+|---------------------|-------------|---------------|
+| OPENAI_API_KEY | OpenAI API key (set empty to use Azure OpenAI) | sk-... |
+| OPENAI_DEFAULT_MODEL | Model to use for generation | gpt-4 |
+| MAX_TOKENS | Maximum tokens for response generation | 4000 |
+| TEMPERATURE | Randomness of generation (0.0-1.0) | 0.7 |
+| AZURE_OPENAI_ENDPOINT | Azure OpenAI endpoint URL | https://resource.openai.azure.com/ |
+| AZURE_OPENAI_DEPLOYMENT_NAME | Azure OpenAI deployment name | gpt4 |
+| AZURE_OPENAI_API_VERSION | Azure OpenAI API version | 2023-12-01-preview |
+| PORT | Port the application listens on | 80 |
+| HOST | Host to bind to | 0.0.0.0 |
+| ENVIRONMENT | Environment mode (development/production) | production |
+| LOG_LEVEL | Logging level | info |
+| PYTHONUNBUFFERED | Ensures logs appear immediately | 1 |
+| WEBSITES_PORT | Port for Azure App Service | 80 |
 
 ### Deploying to Azure App Service
 
@@ -487,6 +530,9 @@ az acr create --resource-group your-resource-group --name yourregistryname --sku
 
 # Login to ACR
 az acr login --name yourregistryname
+
+# Build with the correct platform
+docker build --platform linux/amd64 -t ai-content-creator:latest .
 
 # Tag and push your image
 ACR_LOGINSERVER=$(az acr show --name yourregistryname --query loginServer --output tsv)
@@ -533,8 +579,10 @@ az webapp config appsettings set \
   WEBSITE_WARMUP_PATH="/robots933456.txt" \
   WEBSITE_WARMUP_STATUSES="200" \
   LOG_LEVEL="info" \
-  ENVIRONMENT="production"
+  PYTHONUNBUFFERED="1"
 ```
+
+> **Note**: The application implements the `/robots933456.txt` endpoint specifically for Azure App Service's warmup process, which checks container readiness.
 
 #### 4a. Configure for OpenAI API
 
@@ -620,7 +668,13 @@ If encountering issues:
    ```
 
 3. Common issues:
-   - Incorrect platform (build with `--platform=linux/amd64`)
-   - Missing environment variables
-   - Azure role assignment failed
-   - Docker image not accessible
+   - **Architecture Mismatch**: Ensure you build with `--platform=linux/amd64` 
+   - **Port Configuration**: Verify `WEBSITES_PORT=80` is set
+   - **Warmup Failures**: Check `/robots933456.txt` endpoint returns 200
+   - **Authentication Issues**: Ensure Managed Identity has the proper role assignment
+   - **Container Access**: Verify ACR credentials are correctly configured
+
+4. Check the health endpoint:
+   ```bash
+   curl -X GET https://your-app-name.azurewebsites.net/health
+   ```
