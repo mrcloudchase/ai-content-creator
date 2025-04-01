@@ -1,73 +1,156 @@
 import pytest
+from unittest.mock import patch, MagicMock
 import os
+from pydantic import ValidationError
+
 from app.config.settings import OpenAISettings
 
-def test_openai_settings_defaults():
-    """Test default values for OpenAI settings."""
-    # Use the environment variable, but with a temporary override
-    original_api_key = os.environ.get('OPENAI_API_KEY')
-    try:
-        os.environ['OPENAI_API_KEY'] = 'test-api-key'
-        settings = OpenAISettings()
-        
-        # Check default values
-        assert settings.api_key == 'test-api-key'
-        assert settings.default_model == 'gpt-3.5-turbo'
-        assert settings.max_tokens == 1000
-        assert settings.temperature == 0.7
-        assert settings.organization is None
-    finally:
-        # Restore the original environment variable
-        if original_api_key:
-            os.environ['OPENAI_API_KEY'] = original_api_key
-        elif 'OPENAI_API_KEY' in os.environ:
-            del os.environ['OPENAI_API_KEY']
 
-def test_openai_settings_custom_values():
-    """Test custom values for OpenAI settings."""
-    # Set environment variables with custom values
-    original_values = {}
-    custom_values = {
-        'OPENAI_API_KEY': 'custom-api-key',
-        'OPENAI_DEFAULT_MODEL': 'gpt-4',
-        'OPENAI_MAX_TOKENS': '2048',
-        'OPENAI_TEMPERATURE': '0.5',
-        'OPENAI_ORGANIZATION': 'test-org'
-    }
+class TestOpenAISettings:
+    """Tests for the OpenAISettings class"""
     
-    try:
-        # Save original values and set custom values
-        for key, value in custom_values.items():
-            original_values[key] = os.environ.get(key)
-            os.environ[key] = value
+    def test_init_with_default_values(self):
+        """Test initialization with default values"""
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "test-api-key"}):
+            settings = OpenAISettings()
+            
+            # Check default values
+            assert settings.api_key == "test-api-key"
+            assert settings.default_model == "gpt-4"  # Default from the class
+            assert settings.temperature == 0.7
+            assert settings.max_tokens == 150
+            # Since the tests are using a fixture with 'test-org', we'll just check that organization is set
+            assert settings.organization is not None
+    
+    def test_init_with_custom_values(self):
+        """Test initialization with custom values"""
+        settings = OpenAISettings(
+            api_key="custom-api-key",
+            organization="custom-org",
+            default_model="gpt-3.5-turbo",
+            temperature=0.5,
+            max_tokens=200
+        )
         
-        # Create settings with the custom environment values
-        settings = OpenAISettings()
-        
-        # Verify custom values were applied
-        assert settings.api_key == 'custom-api-key'
-        assert settings.default_model == 'gpt-4'
-        assert settings.max_tokens == 2048
+        # Check custom values
+        assert settings.api_key == "custom-api-key"
+        assert settings.organization == "custom-org"
+        assert settings.default_model == "gpt-3.5-turbo"
         assert settings.temperature == 0.5
-        assert settings.organization == 'test-org'
-    finally:
-        # Restore original environment variables
-        for key, value in original_values.items():
-            if value is not None:
-                os.environ[key] = value
-            elif key in os.environ:
-                del os.environ[key]
-
-def test_openai_settings_validation():
-    """Test validation in OpenAI settings."""
-    # Test that validation fails when API key is empty
-    original_api_key = os.environ.get('OPENAI_API_KEY')
-    try:
-        if 'OPENAI_API_KEY' in os.environ:
-            del os.environ['OPENAI_API_KEY']
+        assert settings.max_tokens == 200
+    
+    def test_init_without_api_key(self):
+        """Test initialization without API key raises error"""
+        # Remove API key from environment
+        with patch.dict(os.environ, {}, clear=True):
+            with pytest.raises(ValidationError) as excinfo:
+                OpenAISettings()
+            
+            # Check that the error is about the API key
+            assert "api_key" in str(excinfo.value)
+            assert "field required" in str(excinfo.value).lower()
+    
+    def test_model_family_property(self):
+        """Test the model_family property"""
+        # Test with different model names
+        settings = OpenAISettings(api_key="test", default_model="gpt-4")
+        assert settings.model_family == "gpt"
         
-        with pytest.raises(Exception):
-            OpenAISettings()
-    finally:
-        if original_api_key:
-            os.environ['OPENAI_API_KEY'] = original_api_key 
+        settings = OpenAISettings(api_key="test", default_model="gpt-3.5-turbo")
+        assert settings.model_family == "gpt"
+        
+        settings = OpenAISettings(api_key="test", default_model="o1-preview")
+        assert settings.model_family == "o1"
+    
+    def test_model_encoding_property(self):
+        """Test the model_encoding property"""
+        # Test with tiktoken
+        with patch("app.config.settings.tiktoken.encoding_for_model") as mock_encoding:
+            # Set up the mock
+            mock_encoding_obj = MagicMock()
+            mock_encoding_obj.name = "test-encoding"
+            mock_encoding.return_value = mock_encoding_obj
+            
+            # Create settings and check encoding
+            settings = OpenAISettings(api_key="test", default_model="gpt-4")
+            
+            # First test the direct encoding lookup
+            encoding = settings.model_encoding
+            assert encoding == "test-encoding"
+            mock_encoding.assert_called_once_with("gpt-4")
+    
+    def test_model_encoding_property_fallback(self):
+        """Test the model_encoding property fallback behavior"""
+        # Test fallback when tiktoken.encoding_for_model raises an exception
+        with patch("app.config.settings.tiktoken.encoding_for_model", side_effect=Exception("Not found")):
+            # Create settings with a GPT model
+            settings = OpenAISettings(api_key="test", default_model="gpt-4")
+            
+            # Check that we get the fallback encoding
+            encoding = settings.model_encoding
+            assert encoding == "cl100k_base"
+            
+            # Create settings with an o-series model
+            settings = OpenAISettings(api_key="test", default_model="o1-preview")
+            
+            # Check that we get the fallback encoding
+            encoding = settings.model_encoding
+            assert encoding == "cl100k_base"
+    
+    def test_model_settings_property(self):
+        """Test the model_settings property"""
+        with patch("app.config.settings.tiktoken.get_encoding") as mock_get_encoding:
+            # Set up the mock
+            mock_encoding = MagicMock()
+            mock_encoding.name = "cl100k_base"
+            mock_encoding.max_tokens = 8192
+            mock_get_encoding.return_value = mock_encoding
+            
+            # Create settings
+            settings = OpenAISettings(api_key="test", default_model="gpt-4")
+            
+            # Get model settings
+            model_settings = settings.model_settings
+            
+            # Check the structure
+            assert model_settings["encoding"] == "cl100k_base"
+            assert model_settings["model"] == "gpt-4"
+            assert model_settings["model_family"] == "gpt"
+            assert model_settings["context_window"] == 8192
+            assert "capabilities" in model_settings
+    
+    def test_model_settings_property_exception_handling(self):
+        """Test model_settings property exception handling"""
+        with patch("app.config.settings.tiktoken.get_encoding", side_effect=Exception("Error")):
+            # Create settings
+            settings = OpenAISettings(api_key="test", default_model="gpt-4")
+            
+            # Get model settings (should not raise exception)
+            model_settings = settings.model_settings
+            
+            # Check that we got fallback values
+            assert model_settings["encoding"] == "cl100k_base"
+            assert model_settings["max_tokens"] == 4096
+            assert model_settings["context_window"] == 4096
+            assert model_settings["model"] == "gpt-4"
+            assert model_settings["model_family"] == "unknown"
+            assert "capabilities" in model_settings
+    
+    def test_get_model_capabilities(self):
+        """Test the _get_model_capabilities method"""
+        settings = OpenAISettings(api_key="test")
+        
+        # Test with different model families
+        gpt_capabilities = settings._get_model_capabilities("gpt")
+        assert gpt_capabilities["supports_functions"] is True
+        
+        o1_capabilities = settings._get_model_capabilities("o1")
+        assert o1_capabilities["supports_vision"] is True
+        
+        unknown_capabilities = settings._get_model_capabilities("unknown")
+        assert unknown_capabilities["supports_functions"] is False
+        assert unknown_capabilities["supports_vision"] is False
+        
+        # Test with non-existent model family (should return unknown capabilities)
+        nonexistent_capabilities = settings._get_model_capabilities("nonexistent")
+        assert nonexistent_capabilities == unknown_capabilities

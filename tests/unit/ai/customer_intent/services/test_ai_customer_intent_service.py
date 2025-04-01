@@ -1,90 +1,105 @@
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
 from app.ai.customer_intent.services.ai_customer_intent_service import CustomerIntentService
-from app.ai.core.services.ai_core_service import AIService
 
-def test_format_customer_intent_prompt():
-    """Test formatting customer intent prompt."""
-    # Create service instance
-    ai_service = MagicMock(spec=AIService)
-    service = CustomerIntentService(ai_service)
-    
-    # Test with no user type
-    document_text = "This is a sample document."
-    prompt = service.format_customer_intent_prompt(document_text)
-    
-    # Verify prompt structure
-    assert "Write a customer intent in the following format:" in prompt
-    assert "As a <type of user>, I want to do <what> because <why>" in prompt
-    assert document_text in prompt
-    
-    # Test with specific user type
-    prompt = service.format_customer_intent_prompt(document_text, user_type="developer")
-    
-    # Verify user type is included
-    assert "Write a customer intent for a developer" in prompt
-    assert "As a developer" in prompt
-    assert document_text in prompt
 
-@pytest.mark.asyncio
-async def test_generate_customer_intent():
-    """Test generating customer intent."""
-    # Create mock AIService
-    ai_service = MagicMock(spec=AIService)
-    
-    # Configure generate_completion mock
-    ai_service.generate_completion = AsyncMock()
-    ai_service.generate_completion.return_value = {
-        "text": "As a user, I want to create reports because I need to analyze data.",
-        "model": "gpt-3.5-turbo",
-        "usage": {
-            "prompt_tokens": 50,
-            "completion_tokens": 20,
-            "total_tokens": 70
-        }
-    }
-    
-    # Create service instance
-    service = CustomerIntentService(ai_service)
-    
-    # Test without user type
-    document_text = "Feature request: Generate PDF reports from data."
-    result = await service.generate_customer_intent(document_text)
-    
-    # Verify result structure
-    assert "intent" in result
-    assert "model" in result
-    assert "usage" in result
-    assert "As a user" in result["intent"]
-    assert "reports" in result["intent"]
-    assert "model" in result
-    assert result["model"] == "gpt-3.5-turbo"
-    assert "usage" in result
-    assert "prompt_tokens" in result["usage"]
-    
-    # Verify generate_completion was called with correct parameters
-    ai_service.generate_completion.assert_called_once()
-    call_args = ai_service.generate_completion.call_args[1]
-    assert "prompt" in call_args
-    assert document_text in call_args["prompt"]
-    assert call_args["max_tokens"] == 150
-    assert call_args["temperature"] == 0.5
-    
-    # Reset mock
-    ai_service.generate_completion.reset_mock()
-    
-    # Test with specific user type and custom parameters
-    result = await service.generate_customer_intent(
-        document_text="Feature request: Export data to Excel.",
-        user_type="data analyst",
-        max_tokens=200,
-        temperature=0.7
-    )
-    
-    # Verify generate_completion was called with correct parameters
-    ai_service.generate_completion.assert_called_once()
-    call_args = ai_service.generate_completion.call_args[1]
-    assert "data analyst" in call_args["prompt"]
-    assert "Export data to Excel" in call_args["prompt"]
-    assert call_args["max_tokens"] == 200
-    assert call_args["temperature"] == 0.7 
+class TestCustomerIntentService:
+    """Tests for the CustomerIntentService class"""
+
+    def test_init(self):
+        """Test initialization"""
+        service = CustomerIntentService()
+        assert isinstance(service, CustomerIntentService)
+
+    def test_format_customer_intent_prompt_basic(self):
+        """Test basic prompt formatting without user type"""
+        # Setup
+        service = CustomerIntentService()
+        document_text = "This is a test document for customer intent analysis."
+        
+        # Execute
+        result = service.format_customer_intent_prompt(document_text)
+        
+        # Verify
+        assert "messages" in result
+        messages = result["messages"]
+        assert len(messages) == 2
+        
+        # Verify system message
+        assert messages[0]["role"] == "system"
+        assert "expert at analyzing documents" in messages[0]["content"]
+        assert "As a [user type], I want to [action] because [reason]" in messages[0]["content"]
+        
+        # Verify user message
+        assert messages[1]["role"] == "user"
+        assert "analyze the following document" in messages[1]["content"]
+        assert document_text in messages[1]["content"]
+        assert "user type" not in messages[1]["content"].lower()
+
+    def test_format_customer_intent_prompt_with_user_type(self):
+        """Test prompt formatting with specified user type"""
+        # Setup
+        service = CustomerIntentService()
+        document_text = "This is a test document for customer intent analysis."
+        user_type = "product manager"
+        
+        # Execute
+        result = service.format_customer_intent_prompt(document_text, user_type)
+        
+        # Verify
+        assert "messages" in result
+        messages = result["messages"]
+        
+        # Verify user message contains user_type
+        assert messages[1]["role"] == "user"
+        assert f"for a {user_type}" in messages[1]["content"]
+        assert document_text in messages[1]["content"]
+
+    def test_format_customer_intent_prompt_with_empty_document(self):
+        """Test prompt formatting with empty document raises error"""
+        # Setup
+        service = CustomerIntentService()
+        
+        # Execute & Verify
+        with pytest.raises(ValueError) as excinfo:
+            service.format_customer_intent_prompt("")
+        
+        assert "Document text cannot be empty" in str(excinfo.value)
+
+    def test_format_customer_intent_prompt_with_whitespace_document(self):
+        """Test prompt formatting with whitespace-only document raises error"""
+        # Setup
+        service = CustomerIntentService()
+        
+        # Execute & Verify
+        with pytest.raises(ValueError) as excinfo:
+            service.format_customer_intent_prompt("   \n   ")
+        
+        assert "Document text cannot be empty" in str(excinfo.value)
+
+    def test_system_message_content(self):
+        """Test that system message contains all required guidelines"""
+        # Setup
+        service = CustomerIntentService()
+        document_text = "Test document"
+        
+        # Execute
+        result = service.format_customer_intent_prompt(document_text)
+        
+        # Verify system message content
+        system_content = result["messages"][0]["content"]
+        
+        # Check that system message contains the key components
+        assert "As a [user type], I want to [action] because [reason]" in system_content
+        assert "User type should be specific" in system_content
+        assert "Action should be clear" in system_content
+        assert "Reason should explain" in system_content
+        assert "Keep the statement concise" in system_content
+        assert "Focus on the user's perspective" in system_content
+        assert "Avoid technical jargon" in system_content
+        assert "Make the intent actionable" in system_content
+        assert "<customer_intent>" in system_content
+        
+        # Check for examples
+        assert "Example good customer intents" in system_content
+        assert "Example bad customer intents" in system_content
+        assert "too vague" in system_content

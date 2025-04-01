@@ -13,6 +13,7 @@ A FastAPI backend for processing documents and generating AI-powered customer in
   - [Using cURL](#using-curl)
   - [Python Client Example](#python-client-example)
 - [For Developers](#for-developers)
+  - [Requirements](#requirements)
   - [Project Structure](#project-structure)
   - [Execution Flow](#execution-flow)
   - [Development Setup](#development-setup)
@@ -176,6 +177,12 @@ if __name__ == "__main__":
 
 ## For Developers
 
+### Requirements
+
+- **Python 3.12+** - Required for compatibility with tiktoken and other dependencies
+- OpenAI API key
+- pip package manager
+
 ### Project Structure
 
 The project follows a feature-based organization:
@@ -246,24 +253,30 @@ When a file is uploaded to the API endpoint, the following execution sequence oc
 
 ### Development Setup
 
-1. **Clone the repository**:
+1. **Ensure Python 3.12+ is installed**:
+   ```bash
+   python --version  # Should show Python 3.12.x or higher
+   ```
+   If not installed, download from [python.org](https://www.python.org/downloads/) or use your operating system's package manager.
+
+2. **Clone the repository**:
    ```bash
    git clone <repository-url>
    cd ai-content-creator
    ```
 
-2. **Create a virtual environment**:
+3. **Create a virtual environment with Python 3.12**:
    ```bash
-   python -m venv venv
+   python3.12 -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
 
-3. **Install dependencies**:
+4. **Install dependencies**:
    ```bash
    pip install -r requirements.txt
    ```
 
-4. **Set up environment variables**:
+5. **Set up environment variables**:
    ```bash
    cp .env-example .env
    ```

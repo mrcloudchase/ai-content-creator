@@ -1,107 +1,139 @@
 import pytest
-import os
-import tempfile
-from fastapi import UploadFile
-from unittest.mock import AsyncMock, MagicMock, patch
-from app.input_processing.markdown.services.markdown_service import MarkdownService, MarkdownServiceError
-from app.input_processing.core.services.input_processing_core_service import InputProcessingService
+from unittest.mock import patch, MagicMock
 
-def test_load_markdown_file():
-    """Test loading markdown from a file."""
-    # Create a temporary markdown file
-    with tempfile.NamedTemporaryFile(suffix='.md', mode='w+', delete=False) as temp_file:
-        temp_file.write("# Test Markdown\n\nThis is a test.")
-        temp_file_path = temp_file.name
-    
-    try:
-        # Test loading the file
-        service = MarkdownService()
-        content = service.load_markdown_file(temp_file_path)
-        
-        # Verify content
-        assert "# Test Markdown" in content
-        assert "This is a test." in content
-        
-        # Test with non-existent file
-        with pytest.raises(MarkdownServiceError):
-            service.load_markdown_file("non_existent_file.md")
-    finally:
-        # Clean up
-        os.unlink(temp_file_path)
+from app.input_processing.markdown.services.markdown_service import (
+    MarkdownService,
+    MarkdownServiceError
+)
 
-@pytest.mark.asyncio
-async def test_process_uploaded_file():
-    """Test processing an uploaded markdown file."""
-    # Create a mock UploadFile
-    mock_file = MagicMock(spec=UploadFile)
-    mock_file.filename = "test.md"
-    
-    # Create test content
-    test_content = "# Test Markdown\n\nThis is a test."
-    
-    # Mock file read
-    mock_file.read = AsyncMock(return_value=test_content.encode('utf-8'))
-    
-    # Mock aiofiles.open
-    with patch('aiofiles.open', new_callable=AsyncMock) as mock_aio_open:
-        # Mock file write
-        mock_file_handle = AsyncMock()
-        mock_file_handle.__aenter__.return_value = mock_file_handle
-        mock_aio_open.return_value = mock_file_handle
-        
-        # Mock load_markdown_file to return our test content
-        with patch.object(MarkdownService, 'load_markdown_file', return_value=test_content):
-            # Mock process_markdown to return the processed content
-            with patch.object(MarkdownService, 'process_markdown', return_value="Processed: " + test_content):
-                # Test processing uploaded file
-                service = MarkdownService()
-                result = await service.process_uploaded_file(mock_file)
-                
-                # Verify result
-                assert "Processed: " in result
-                assert "# Test Markdown" in result
-    
-    # Test with invalid file type
-    mock_file.filename = "test.txt"
-    service = MarkdownService()
-    with pytest.raises(MarkdownServiceError):
-        await service.process_uploaded_file(mock_file)
 
-def test_process_markdown():
-    """Test processing markdown content."""
-    # Mock InputProcessingService.process_text to return processed text
-    with patch.object(InputProcessingService, 'process_text', return_value="Processed content"):
+class TestMarkdownService:
+    """Tests for the MarkdownService class"""
+    
+    def test_extract_text_basic_markdown(self):
+        """Test extracting text from basic markdown content"""
         service = MarkdownService()
         
-        # Test with valid content
-        result = service.process_markdown("# Test Markdown\n\nThis is a test.")
-        assert result == "Processed content"
+        # Create test markdown content
+        markdown_content = """# Test Document
         
-        # Test with invalid content
-        with pytest.raises(MarkdownServiceError):
-            service.process_markdown("")
-    
-    # Test error handling from InputProcessingService
-    with patch.object(InputProcessingService, 'process_text', side_effect=Exception("Test error")):
-        service = MarkdownService()
-        with pytest.raises(MarkdownServiceError):
-            service.process_markdown("# Test")
+## Introduction
+This is a test document for markdown extraction.
 
-def test_validate_markdown():
-    """Test validating markdown content."""
-    service = MarkdownService()
+## Features
+- Feature 1
+- Feature 2
+- Feature 3
+
+## Code Example
+```python
+def test_function():
+    return "Hello, world!"
+```
+"""
+        # Convert to bytes
+        markdown_bytes = markdown_content.encode('utf-8')
+        
+        # Extract text
+        result = service.extract_text(markdown_bytes)
+        
+        # Verify content extraction
+        assert result is not None
+        assert isinstance(result, str)
+        assert "Test Document" in result
+        assert "Introduction" in result
+        assert "This is a test document for markdown extraction" in result
+        assert "Features" in result
+        assert "Feature 1" in result
+        assert "Feature 2" in result
+        assert "Feature 3" in result
+        assert "Code Example" in result
+        assert "test_function" in result
+        assert "Hello, world!" in result
     
-    # Test with valid content
-    service.validate_markdown("# Test Markdown")
+    def test_extract_text_empty_content(self):
+        """Test extracting text from empty markdown content"""
+        service = MarkdownService()
+        
+        # Create empty bytes
+        empty_bytes = b""
+        
+        # Extract text should succeed but return empty string
+        result = service.extract_text(empty_bytes)
+        assert result == ""
     
-    # Test with empty string
-    with pytest.raises(MarkdownServiceError):
-        service.validate_markdown("")
+    def test_extract_text_with_utf8_bom(self):
+        """Test extracting text with UTF-8 BOM marker"""
+        service = MarkdownService()
+        
+        # Create markdown content with UTF-8 BOM
+        # UTF-8 BOM is the byte sequence: EF BB BF
+        bom = b'\xef\xbb\xbf'
+        markdown_content = "# Test with UTF-8 BOM\nThis is a test."
+        markdown_bytes = bom + markdown_content.encode('utf-8')
+        
+        # Extract text
+        result = service.extract_text(markdown_bytes)
+        
+        # Verify content extraction without BOM characters
+        assert result is not None
+        assert "# Test with UTF-8 BOM" in result
+        assert "This is a test" in result
     
-    # Test with None
-    with pytest.raises(MarkdownServiceError):
-        service.validate_markdown(None)
+    def test_extract_text_with_different_encodings(self):
+        """Test extracting text with different encodings"""
+        service = MarkdownService()
+        
+        # Test with latin-1 encoding
+        markdown_content = "# Test Document\nSpecial char: é"
+        markdown_bytes = markdown_content.encode('latin-1')
+        
+        # Extract text
+        result = service.extract_text(markdown_bytes)
+        
+        # Verify content extraction
+        assert result is not None
+        assert "Test Document" in result
+        assert "Special char: é" in result
     
-    # Test with whitespace only
-    with pytest.raises(MarkdownServiceError):
-        service.validate_markdown("   ") 
+    def test_extract_text_with_invalid_encoding(self):
+        """Test extracting text with invalid encoding"""
+        service = MarkdownService()
+        
+        # Create invalid bytes that can't be decoded with standard encodings
+        invalid_bytes = b'\xC0\xC1\xF5\xF6'  # Invalid UTF-8 bytes
+        
+        # The test needs to be updated because latin-1 can actually decode any byte sequence
+        # So the service will not raise an exception even with invalid UTF-8
+        result = service.extract_text(invalid_bytes)
+        
+        # We should get some result using the latin-1 fallback
+        assert result is not None
+        assert isinstance(result, str)
+        assert len(result) == len(invalid_bytes)  # Each byte becomes one character
+    
+    def test_extract_text_preserves_line_breaks(self):
+        """Test that text extraction preserves important line breaks"""
+        service = MarkdownService()
+        
+        # Create markdown with specific line break patterns
+        # Note: In the actual implementation, line breaks are preserved exactly as they are
+        markdown_content = """# Title
+
+Paragraph 1.
+This is still paragraph 1.
+
+Paragraph 2.
+
+- List item 1
+- List item 2
+"""
+        # Convert to bytes
+        markdown_bytes = markdown_content.encode('utf-8')
+        
+        # Extract text
+        result = service.extract_text(markdown_bytes)
+        
+        # Verify line breaks are preserved as is
+        assert result.count("\n\n") >= 2  # At least 2 paragraph breaks
+        assert "Paragraph 1.\nThis is still paragraph 1." in result

@@ -1,126 +1,127 @@
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import patch, AsyncMock, MagicMock
 import os
+import openai
+
 from app.ai.core.services.ai_core_service import AIService, OpenAIServiceError
-from app.config.settings import OpenAISettings
-from dotenv import load_dotenv
 
-# Load environment variables for testing
-load_dotenv()
 
-@pytest.mark.asyncio
-async def test_generate_completion():
-    """Test successful completion generation"""
-    # Create a mock response
-    mock_choice = MagicMock()
-    mock_choice.message.content = "This is a test response"
-    
-    mock_usage = MagicMock()
-    mock_usage.prompt_tokens = 10
-    mock_usage.completion_tokens = 20
-    mock_usage.total_tokens = 30
-    
-    mock_response = MagicMock()
-    mock_response.choices = [mock_choice]
-    mock_response.usage = mock_usage
-    mock_response.model = "gpt-3.5-turbo"
-    
-    # Create a proper patch that completely replaces the AsyncOpenAI functionality
-    with patch('app.ai.core.services.ai_core_service.AsyncOpenAI', autospec=True) as mock_openai:
-        # Set up the mock structure to match the AsyncOpenAI class structure
-        mock_instance = mock_openai.return_value
-        mock_instance.chat = MagicMock()
-        mock_instance.chat.completions = MagicMock()
-        mock_instance.chat.completions.create = AsyncMock(return_value=mock_response)
-        
-        # Use the actual settings from .env
-        service = AIService()
-        result = await service.generate_completion("Test prompt")
-        
-        # Check response was processed correctly
-        assert result["text"] == "This is a test response"
-        assert result["model"] == "gpt-3.5-turbo"
-        assert result["usage"]["prompt_tokens"] == 10
-        assert result["usage"]["completion_tokens"] == 20
-        assert result["usage"]["total_tokens"] == 30
-        
-        # Verify the call was made properly
-        create_call = mock_instance.chat.completions.create
-        create_call.assert_called_once()
-        kwargs = create_call.call_args.kwargs
-        assert kwargs["messages"][0]["content"] == "Test prompt"
-        assert kwargs["model"] == service.settings.default_model
+class TestAIService:
+    """Tests for the AIService class"""
 
-@pytest.mark.asyncio
-async def test_generate_completion_with_params():
-    """Test completion with custom parameters"""
-    # Create a mock response
-    mock_choice = MagicMock()
-    mock_choice.message.content = "This is a test response with custom params"
-    
-    mock_usage = MagicMock()
-    mock_usage.prompt_tokens = 15
-    mock_usage.completion_tokens = 25
-    mock_usage.total_tokens = 40
-    
-    mock_response = MagicMock()
-    mock_response.choices = [mock_choice]
-    mock_response.usage = mock_usage
-    mock_response.model = "gpt-4"
-    
-    # Create a proper patch that completely replaces the AsyncOpenAI functionality
-    with patch('app.ai.core.services.ai_core_service.AsyncOpenAI', autospec=True) as mock_openai:
-        # Set up the mock structure to match the AsyncOpenAI class structure
-        mock_instance = mock_openai.return_value
-        mock_instance.chat = MagicMock()
-        mock_instance.chat.completions = MagicMock()
-        mock_instance.chat.completions.create = AsyncMock(return_value=mock_response)
-        
-        # Use the actual settings from .env
-        service = AIService()
-        
-        # Test with custom parameters
-        result = await service.generate_completion(
-            "Test prompt with custom params",
-            model="gpt-4",
-            max_tokens=100,
-            temperature=0.5
-        )
-        
-        # Check response was processed correctly
-        assert result["text"] == "This is a test response with custom params"
-        assert result["model"] == "gpt-4"
-        
-        # Verify custom parameters were passed correctly
-        create_call = mock_instance.chat.completions.create
-        create_call.assert_called_once()
-        kwargs = create_call.call_args.kwargs
-        assert kwargs["model"] == "gpt-4"
-        assert kwargs["max_tokens"] == 100
-        assert kwargs["temperature"] == 0.5
+    def test_init_with_settings(self, openai_settings):
+        """Test initialization with settings"""
+        with patch("app.ai.core.services.ai_core_service.openai.AsyncOpenAI") as mock_openai:
+            service = AIService(openai_settings)
+            assert service.settings == openai_settings
+            mock_openai.assert_called_once()
 
-@pytest.mark.asyncio
-async def test_empty_prompt():
-    """Test with empty prompt should raise assertion error"""
-    # Use real settings from .env for consistent testing
-    service = AIService()
-    with pytest.raises(AssertionError, match="Prompt cannot be empty"):
-        await service.generate_completion("")
+    def test_init_with_env_vars(self):
+        """Test initialization with environment variables"""
+        with patch("app.ai.core.services.ai_core_service.openai.AsyncOpenAI") as mock_openai:
+            # Save original env var
+            original_api_key = os.environ.get("OPENAI_API_KEY")
+            
+            try:
+                # Set test env var
+                os.environ["OPENAI_API_KEY"] = "test-env-api-key"
+                
+                # Create service without settings
+                service = AIService(None)
+                
+                # Verify client was created with env var
+                mock_openai.assert_called_once()
+                # Check if API key was obtained from env
+                call_args = mock_openai.call_args[1]
+                assert call_args["api_key"] == "test-env-api-key"
+                
+            finally:
+                # Restore original env var
+                if original_api_key:
+                    os.environ["OPENAI_API_KEY"] = original_api_key
+                else:
+                    del os.environ["OPENAI_API_KEY"]
 
-@pytest.mark.asyncio
-async def test_api_error():
-    """Test handling of API errors"""
-    # Create a proper patch that completely replaces the AsyncOpenAI functionality
-    with patch('app.ai.core.services.ai_core_service.AsyncOpenAI', autospec=True) as mock_openai:
-        # Set up the mock structure to match the AsyncOpenAI class structure
-        mock_instance = mock_openai.return_value
-        mock_instance.chat = MagicMock()
-        mock_instance.chat.completions = MagicMock()
-        mock_instance.chat.completions.create = AsyncMock(side_effect=Exception("API error"))
-        
-        # Use the actual settings from .env
-        service = AIService()
-        
-        # Test error handling
-        with pytest.raises(OpenAIServiceError, match="Error calling OpenAI API"):
-            await service.generate_completion("Test prompt") 
+    @pytest.mark.asyncio
+    async def test_generate_completion_success(self, mock_openai_response):
+        """Test successful completion generation"""
+        # Setup
+        with patch("app.ai.core.services.ai_core_service.openai.AsyncOpenAI") as mock_openai:
+            # Setup the mock client
+            mock_client = MagicMock()
+            mock_client.chat.completions.create = AsyncMock(return_value=mock_openai_response)
+            mock_openai.return_value = mock_client
+            
+            # Create test service
+            service = AIService(MagicMock())
+            service.client = mock_client
+            
+            # Test data
+            messages = [
+                {"role": "system", "content": "You are a helpful assistant"},
+                {"role": "user", "content": "Write a customer intent statement"}
+            ]
+            
+            # Call method
+            result = await service.generate_completion(messages=messages)
+            
+            # Assert response was processed correctly
+            assert "text" in result
+            assert result["text"] == "As a content creator, I want to streamline my workflow because it saves time and increases productivity."
+            assert result["model"] == "gpt-4-test"
+            assert "usage" in result
+            assert result["usage"]["prompt_tokens"] == 100
+            assert result["usage"]["completion_tokens"] == 50
+            assert result["usage"]["total_tokens"] == 150
+            
+            # Assert OpenAI API was called with correct parameters
+            mock_client.chat.completions.create.assert_called_once()
+            call_args = mock_client.chat.completions.create.call_args[1]
+            assert call_args["messages"] == messages
+
+    @pytest.mark.asyncio
+    async def test_generate_completion_with_model_param(self, mock_openai_response):
+        """Test completion generation with model parameter"""
+        # Setup
+        with patch("app.ai.core.services.ai_core_service.openai.AsyncOpenAI") as mock_openai:
+            # Setup the mock client
+            mock_client = MagicMock()
+            mock_client.chat.completions.create = AsyncMock(return_value=mock_openai_response)
+            mock_openai.return_value = mock_client
+            
+            # Create test service
+            service = AIService(MagicMock())
+            service.client = mock_client
+            
+            # Test data
+            messages = [{"role": "user", "content": "Test"}]
+            model = "gpt-3.5-turbo-test"
+            
+            # Call method
+            await service.generate_completion(messages=messages, model=model)
+            
+            # Assert model parameter was used
+            call_args = mock_client.chat.completions.create.call_args[1]
+            assert call_args["model"] == "gpt-3.5-turbo-test"
+
+    @pytest.mark.asyncio
+    async def test_generate_completion_error_handling(self):
+        """Test error handling in completion generation"""
+        # Setup
+        with patch("app.ai.core.services.ai_core_service.openai.AsyncOpenAI") as mock_openai:
+            # Setup client to raise an exception
+            mock_client = MagicMock()
+            mock_client.chat.completions.create = AsyncMock(side_effect=Exception("API error"))
+            mock_openai.return_value = mock_client
+            
+            # Create test service
+            service = AIService(MagicMock())
+            service.client = mock_client
+            
+            # Call method and check exception
+            with pytest.raises(OpenAIServiceError) as excinfo:
+                await service.generate_completion(messages=[{"role": "user", "content": "Test"}])
+            
+            # Verify error message
+            assert "Error calling OpenAI API" in str(excinfo.value)
+            assert "API error" in str(excinfo.value)

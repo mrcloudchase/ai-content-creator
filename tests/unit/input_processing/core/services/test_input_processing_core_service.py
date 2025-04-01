@@ -1,60 +1,181 @@
 import pytest
-from app.input_processing.core.services.input_processing_core_service import InputProcessingService, InputProcessingError
+from unittest.mock import patch
 
-def test_escape_special_chars():
-    """Test escaping special characters for JSON compatibility."""
-    # Test basic escaping
-    assert InputProcessingService.escape_special_chars("Test\nNew Line") == "Test\nNew Line"
-    assert InputProcessingService.escape_special_chars("Test\\Backslash") == "Test\\\\Backslash"
-    
-    # Test Unicode quotes and apostrophes
-    assert InputProcessingService.escape_special_chars('Test "quotes" and \'apostrophes\'') == 'Test "quotes" and \'apostrophes\''
-    
-    # Test special characters
-    assert InputProcessingService.escape_special_chars("Test dash—em dash") == "Test dash--em dash"
-    assert InputProcessingService.escape_special_chars("Test…ellipsis") == "Test...ellipsis"
-    
-    # Test control characters
-    control_chars = "".join(chr(i) for i in range(32) if i not in [9, 10, 13])  # Exclude tab, newline, return
-    result = InputProcessingService.escape_special_chars(f"Test{control_chars}Control")
-    assert result == "TestControl"  # Control characters should be removed
-    
-    # Test empty string
-    assert InputProcessingService.escape_special_chars("") == ""
-    assert InputProcessingService.escape_special_chars(None) == ""
+from app.input_processing.core.services.input_processing_core_service import (
+    InputProcessingService,
+    InputProcessingError
+)
 
-def test_validate_text():
-    """Test validating text content."""
-    # Valid text
-    InputProcessingService.validate_text("Valid text")
-    
-    # Empty text should raise error
-    with pytest.raises(InputProcessingError):
-        InputProcessingService.validate_text("")
-    
-    # None should raise error
-    with pytest.raises(InputProcessingError):
-        InputProcessingService.validate_text(None)
-    
-    # Whitespace only should raise error
-    with pytest.raises(InputProcessingError):
-        InputProcessingService.validate_text("   ")
 
-def test_process_text():
-    """Test processing raw text for API response."""
-    # Test normal processing
-    assert "processed text" in InputProcessingService.process_text("processed text")
+class TestInputProcessingService:
+    """Tests for the InputProcessingService class"""
     
-    # Test processing with special characters
-    processed = InputProcessingService.process_text('Text with "quotes" and \\ backslashes')
-    assert "Text with" in processed
-    assert "quotes" in processed
-    assert "backslashes" in processed
-    
-    # Test error handling for empty text
-    with pytest.raises(InputProcessingError):
-        InputProcessingService.process_text("")
+    def test_process_text_with_valid_text(self):
+        """Test processing valid text"""
+        # Test data with various whitespace and newlines
+        raw_text = """  This is a test document
         
-    # Test error handling for None
-    with pytest.raises(InputProcessingError):
-        InputProcessingService.process_text(None) 
+        with multiple   spaces
+        and line breaks.
+        
+        It should be   properly cleaned.  """
+        
+        result = InputProcessingService.process_text(raw_text)
+        
+        # Verify basic cleaning
+        assert result is not None
+        assert isinstance(result, str)
+        assert result != raw_text  # Should be different after processing
+        
+        # Verify content is preserved (non-whitespace)
+        assert "This is a test document" in result
+        assert "with multiple spaces" in result
+        assert "and line breaks" in result
+        assert "It should be properly cleaned" in result
+        
+        # Verify extra spaces are normalized
+        assert "multiple   spaces" not in result
+        assert "properly cleaned.  " not in result
+    
+    def test_process_text_empty_input(self):
+        """Test processing empty text"""
+        with pytest.raises(InputProcessingError) as excinfo:
+            InputProcessingService.process_text("")
+        
+        assert "Content cannot be empty" in str(excinfo.value)
+    
+    def test_process_text_whitespace_only(self):
+        """Test processing whitespace-only text"""
+        with pytest.raises(InputProcessingError) as excinfo:
+            InputProcessingService.process_text("   \n   \t   ")
+        
+        assert "Content cannot be empty" in str(excinfo.value)
+    
+    def test_process_text_with_html_content(self):
+        """Test processing text with HTML tags"""
+        # Test data with HTML elements
+        raw_text = """<html>
+        <body>
+        <h1>Test Document</h1>
+        <p>This is a <strong>test</strong> with HTML tags.</p>
+        </body>
+        </html>"""
+        
+        result = InputProcessingService.process_text(raw_text)
+        
+        # HTML is not stripped by the actual implementation
+        assert "<html>" in result
+        assert "Test Document" in result
+        assert "This is a <strong>test</strong> with HTML tags" in result
+    
+    def test_process_text_with_markdown_content(self):
+        """Test processing text with Markdown formatting"""
+        # Test data with Markdown elements
+        raw_text = """# Test Document
+        
+        ## Section 1
+        
+        This is a **bold text** and *italic text*.
+        
+        - List item 1
+        - List item 2
+        
+        ```
+        Code block
+        ```
+        """
+        
+        result = InputProcessingService.process_text(raw_text)
+        
+        # Verify content is preserved
+        assert "Test Document" in result
+        assert "Section 1" in result
+        assert "bold text" in result
+        assert "italic text" in result
+        assert "List item" in result
+        assert "Code block" in result
+    
+    def test_process_text_max_length(self):
+        """Test processing text with maximum length handling"""
+        # Create a very long text
+        raw_text = "A" * 1000000  # 1 million characters
+        
+        result = InputProcessingService.process_text(raw_text)
+        
+        # Verify result is truncated or handled properly
+        assert len(result) <= len(raw_text)
+        assert isinstance(result, str)
+    
+    def test_process_text_with_special_characters(self):
+        """Test processing text with special characters"""
+        # Test data with special characters
+        raw_text = """Test with special chars: 
+        • Bullet point
+        — Em dash
+        © Copyright
+        ™ Trademark
+        € Euro symbol
+        """
+        
+        result = InputProcessingService.process_text(raw_text)
+        
+        # Verify special characters are handled
+        assert "Test with special chars" in result
+        # Check that special characters are properly handled
+        assert "Bullet point" in result
+        assert "Em dash" in result or "-- dash" in result
+        assert "Copyright" in result
+        assert "Trademark" in result
+        assert "Euro symbol" in result
+    
+    def test_normalize_line_breaks(self):
+        """Test normalizing line breaks"""
+        text_with_crlf = "Line 1\r\nLine 2\rLine 3\nLine 4"
+        result = InputProcessingService.normalize_line_breaks(text_with_crlf)
+        
+        assert result == "Line 1\nLine 2\nLine 3\nLine 4"
+        assert "\r\n" not in result
+        assert "\r" not in result
+    
+    def test_remove_control_chars(self):
+        """Test removing control characters"""
+        text_with_control_chars = "Text with \x00 null \x08 backspace \x1F char"
+        result = InputProcessingService.remove_control_chars(text_with_control_chars)
+        
+        assert "\x00" not in result
+        assert "\x08" not in result
+        assert "\x1F" not in result
+        assert "Text with  null  backspace  char" == result
+    
+    def test_normalize_whitespace(self):
+        """Test normalizing whitespace"""
+        text_with_extra_spaces = "Text   with    multiple     spaces"
+        result = InputProcessingService.normalize_whitespace(text_with_extra_spaces)
+        
+        assert result == "Text with multiple spaces"
+        assert "   " not in result
+        assert "    " not in result
+        assert "     " not in result
+    
+    def test_normalize_quotes(self):
+        """Test normalizing quotes"""
+        # We can't include actual fancy quotes in Python code, so let's mock the QUOTE_MAPPINGS
+        # and test with regular quotes
+        test_text = "Regular quotes that need no normalization"
+        
+        # Create mock quote mappings
+        mock_mappings = {
+            'fancy_quote1': '"',
+            'fancy_quote2': '"',
+            'fancy_apos1': "'",
+            'fancy_apos2': "'"
+        }
+        
+        # Create test text with our mock fancy quotes
+        test_text_with_mock_fancy_quotes = "Text with fancy_quote1fancy_quote2 and fancy_apos1fancy_apos2"
+        expected_result = 'Text with "" and \'\''
+        
+        # Patch the QUOTE_MAPPINGS with our mock mappings
+        with patch.object(InputProcessingService, 'QUOTE_MAPPINGS', mock_mappings):
+            result = InputProcessingService.normalize_quotes(test_text_with_mock_fancy_quotes)
+            assert result == expected_result

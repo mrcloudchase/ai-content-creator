@@ -1,148 +1,174 @@
 import pytest
+from unittest.mock import patch, MagicMock, mock_open
 import io
-from unittest.mock import patch, MagicMock
-from app.input_processing.docx.services.docx_service import DocxService, DocxServiceError, TokenLimitError
-from app.input_processing.core.services.input_processing_core_service import InputProcessingService
-from app.ai.core.services.tokenizer_core_service import TokenizerService
 
-# Sample binary content for testing
-SAMPLE_DOCX_CONTENT = b'sample docx content'
+from app.input_processing.docx.services.docx_service import (
+    DocxService,
+    DocxServiceError
+)
 
-def test_parse_document():
-    """Test parsing a docx document."""
-    # Mock docx.Document
-    with patch('app.input_processing.docx.services.docx_service.docx') as mock_docx:
-        # Configure mock document
+
+class TestDocxService:
+    """Tests for the DocxService class"""
+    
+    def test_extract_text_with_mock_docx(self):
+        """Test text extraction from DOCX using mocked python-docx"""
+        service = DocxService()
+        
+        # Mock document structure
+        mock_paragraph1 = MagicMock()
+        mock_paragraph1.text = "This is the first paragraph."
+        
+        mock_paragraph2 = MagicMock()
+        mock_paragraph2.text = "This is the second paragraph."
+        
         mock_doc = MagicMock()
-        mock_docx.Document.return_value = mock_doc
+        mock_doc.paragraphs = [mock_paragraph1, mock_paragraph2]
+        mock_doc.tables = []
         
-        # Mock document properties
-        mock_doc.paragraphs = [MagicMock()]
-        mock_doc.paragraphs[0].text = "Test Document"
+        # Mock the docx.Document class
+        with patch("docx.Document", return_value=mock_doc):
+            # Create test docx content (binary content doesn't matter as we're mocking)
+            docx_bytes = b'mock docx binary content'
+            
+            # Extract text
+            result = service.extract_text(docx_bytes)
+            
+            # Verify extraction
+            assert result is not None
+            assert isinstance(result, str)
+            assert "This is the first paragraph." in result
+            assert "This is the second paragraph." in result
+    
+    def test_extract_text_with_empty_document(self):
+        """Test extracting text from empty document"""
+        service = DocxService()
         
-        # Mock BytesIO
-        with patch('app.input_processing.docx.services.docx_service.io.BytesIO') as mock_bytesio:
-            mock_bytesio.return_value = "mock_bytes_io"
-            
-            # Test with valid content
-            result = DocxService.parse_document(SAMPLE_DOCX_CONTENT)
-            
-            # Verify BytesIO was called with content
-            mock_bytesio.assert_called_once_with(SAMPLE_DOCX_CONTENT)
-            
-            # Verify Document was created with BytesIO result
-            mock_docx.Document.assert_called_once_with("mock_bytes_io")
-            
-            # Verify result structure
-            assert "title" in result
-            assert "paragraphs" in result
-            assert "tables" in result
-            assert "headings" in result
-            assert "metadata" in result
-    
-    # Test with empty content
-    with pytest.raises(AssertionError):
-        DocxService.parse_document(b'')
-    
-    # Test with None content
-    with pytest.raises(AssertionError):
-        DocxService.parse_document(None)
-    
-    # Test with non-bytes content
-    with pytest.raises(AssertionError):
-        DocxService.parse_document("string content")
-
-def test_extract_text():
-    """Test extracting text from a docx document."""
-    # Mock docx.Document
-    with patch('app.input_processing.docx.services.docx_service.docx') as mock_docx:
-        # Configure mock document
+        # Mock empty document
         mock_doc = MagicMock()
-        mock_docx.Document.return_value = mock_doc
-        
-        # Mock document content
-        mock_doc.element.body.iter.return_value = []  # No elements to process
         mock_doc.paragraphs = []
         mock_doc.tables = []
         
-        # Mock InputProcessingService
-        with patch.object(InputProcessingService, 'escape_special_chars', return_value="Processed content"):
-            # Mock TokenizerService
-            with patch.object(TokenizerService, 'count_tokens') as mock_count_tokens:
-                # Configure token count to be under limit
-                mock_count_tokens.return_value = {
-                    "token_count": 100,
-                    "model": "gpt-3.5-turbo",
-                    "model_limit": 4096,
-                    "tokens_remaining": 3996
-                }
-                
-                # Test with valid content
-                result = DocxService.extract_text(SAMPLE_DOCX_CONTENT)
-                
-                # Verify result is a string
-                assert isinstance(result, str)
-                assert result == "Processed content"
+        # Mock the docx.Document class
+        with patch("docx.Document", return_value=mock_doc):
+            # Create test docx content
+            docx_bytes = b'mock empty docx binary'
+            
+            # Extract text
+            result = service.extract_text(docx_bytes)
+            
+            # Verify result is empty but not None
+            assert result == ""
     
-    # Test token limit exceeded
-    with patch('app.input_processing.docx.services.docx_service.docx'):
-        with patch.object(InputProcessingService, 'escape_special_chars', return_value="Content"):
-            with patch.object(TokenizerService, 'count_tokens') as mock_count_tokens:
-                # Configure token count to exceed limit
-                mock_count_tokens.return_value = {
-                    "token_count": 10000,
-                    "model": "gpt-3.5-turbo",
-                    "model_limit": 4096,
-                    "tokens_remaining": 0
-                }
-                
-                # Test token limit exceeded
-                with pytest.raises(TokenLimitError):
-                    DocxService.extract_text(SAMPLE_DOCX_CONTENT)
-
-def test_get_title():
-    """Test getting title from document."""
-    # Create mock document
-    mock_doc = MagicMock()
+    def test_extract_text_document_error(self):
+        """Test error handling when Document loading fails"""
+        service = DocxService()
+        
+        # Mock Document class to raise an exception
+        with patch("docx.Document", side_effect=Exception("Document error")):
+            # Create test docx content
+            docx_bytes = b'invalid docx content'
+            
+            # Extract text should raise DocxServiceError
+            with pytest.raises(DocxServiceError) as excinfo:
+                service.extract_text(docx_bytes)
+            
+            # Verify error message
+            assert "Error extracting text from document" in str(excinfo.value)
+            assert "Document error" in str(excinfo.value)
     
-    # Test with paragraphs
-    mock_doc.paragraphs = [MagicMock()]
-    mock_doc.paragraphs[0].text = "Document Title"
+    def test_extract_text_with_complex_document(self):
+        """Test text extraction from a more complex document"""
+        service = DocxService()
+        
+        # Mock a document with various paragraph types
+        mock_paragraphs = [
+            MagicMock(text="Title"),
+            MagicMock(text=""),  # Empty paragraph
+            MagicMock(text="Normal paragraph with text."),
+            MagicMock(text="Paragraph with special chars: ©®™"),
+            MagicMock(text="                "),  # Whitespace paragraph
+            MagicMock(text="Last paragraph.")
+        ]
+        
+        mock_doc = MagicMock()
+        mock_doc.paragraphs = mock_paragraphs
+        mock_doc.tables = []
+        
+        # Mock the docx.Document class
+        with patch("docx.Document", return_value=mock_doc):
+            # Create test docx content
+            docx_bytes = b'mock complex docx content'
+            
+            # Extract text
+            result = service.extract_text(docx_bytes)
+            
+            # Verify content was correctly extracted and formatted
+            assert "Title" in result
+            assert "Normal paragraph with text" in result
+            assert "Paragraph with special chars: ©®™" in result
+            assert "Last paragraph" in result
     
-    title = DocxService._get_title(mock_doc)
-    assert title == "Document Title"
+    def test_extract_text_with_tables(self):
+        """Test text extraction with tables (if supported)"""
+        service = DocxService()
+        
+        # Mock document with paragraphs and tables
+        mock_paragraphs = [
+            MagicMock(text="Document with tables")
+        ]
+        
+        # Mock a table with cells containing text
+        mock_cell1 = MagicMock()
+        mock_cell1.text = "Table cell 1"
+        mock_cell2 = MagicMock()
+        mock_cell2.text = "Table cell 2"
+        
+        mock_row = MagicMock()
+        mock_row.cells = [mock_cell1, mock_cell2]
+        
+        mock_table = MagicMock()
+        mock_table.rows = [mock_row]
+        
+        mock_doc = MagicMock()
+        mock_doc.paragraphs = mock_paragraphs
+        mock_doc.tables = [mock_table]
+        
+        # Mock the docx.Document class
+        with patch("docx.Document", return_value=mock_doc):
+            # Create test docx content
+            docx_bytes = b'mock docx with tables'
+            
+            # Extract text
+            result = service.extract_text(docx_bytes)
+            
+            # Verify paragraph content
+            assert "Document with tables" in result
+            
+            # Verify table content (since we know the implementation supports tables)
+            assert "Table cell 1 | Table cell 2" in result
     
-    # Test with empty paragraphs
-    mock_doc.paragraphs = []
-    title = DocxService._get_title(mock_doc)
-    assert title == "Untitled Document"
-    
-    # Test with empty text in first paragraph
-    mock_doc.paragraphs = [MagicMock()]
-    mock_doc.paragraphs[0].text = "  "
-    
-    title = DocxService._get_title(mock_doc)
-    assert title == "Untitled Document"
-
-def test_get_paragraphs():
-    """Test getting paragraphs from document."""
-    # Create mock document
-    mock_doc = MagicMock()
-    
-    # Test with paragraphs
-    mock_para1 = MagicMock()
-    mock_para1.text = "Paragraph 1"
-    mock_para1.style.name = "Normal"
-    
-    mock_para2 = MagicMock()
-    mock_para2.text = "Paragraph 2"
-    mock_para2.style.name = "Heading 1"
-    
-    mock_doc.paragraphs = [mock_para1, mock_para2]
-    
-    paragraphs = DocxService._get_paragraphs(mock_doc)
-    assert len(paragraphs) == 2
-    assert paragraphs[0]["text"] == "Paragraph 1"
-    assert paragraphs[0]["style"] == "Normal"
-    assert paragraphs[1]["text"] == "Paragraph 2"
-    assert paragraphs[1]["style"] == "Heading 1" 
+    def test_file_io_handling(self):
+        """Test that file IO is handled correctly"""
+        service = DocxService()
+        
+        # Mock BytesIO and Document
+        mock_bytes_io = MagicMock(spec=io.BytesIO)
+        mock_doc = MagicMock()
+        mock_doc.paragraphs = [MagicMock(text="Test paragraph")]
+        mock_doc.tables = []
+        
+        with patch("io.BytesIO", return_value=mock_bytes_io) as mock_bytes_io_cls, \
+             patch("docx.Document", return_value=mock_doc) as mock_document:
+            
+            # Create test docx content
+            docx_bytes = b'mock docx content'
+            
+            # Extract text
+            result = service.extract_text(docx_bytes)
+            
+            # Verify BytesIO was created with the content
+            mock_bytes_io_cls.assert_called_once_with(docx_bytes)
+            
+            # Verify Document was created with the BytesIO object
+            mock_document.assert_called_once_with(mock_bytes_io)

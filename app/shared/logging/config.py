@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from pydantic import validator
+from pydantic import field_validator
 import os
 from typing import Optional
 
@@ -27,7 +27,8 @@ class LoggingSettings(BaseSettings):
     # Number of backup log files to keep
     BACKUP_COUNT: int = 3
     
-    @validator('LOG_LEVEL')
+    @field_validator('LOG_LEVEL')
+    @classmethod
     def validate_log_level(cls, v):
         valid_levels = ['debug', 'info', 'warning', 'error', 'critical']
         if v.lower() not in valid_levels:

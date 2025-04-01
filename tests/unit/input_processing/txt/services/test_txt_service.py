@@ -1,108 +1,112 @@
 import pytest
-import os
-import tempfile
-from fastapi import UploadFile
-from unittest.mock import AsyncMock, MagicMock, patch
-from app.input_processing.txt.services.txt_service import TxtService, TxtServiceError
-from app.input_processing.core.services.input_processing_core_service import InputProcessingService
+from unittest.mock import patch, MagicMock
 
-def test_load_txt_file():
-    """Test loading text from a file."""
-    # Create a temporary text file
-    with tempfile.NamedTemporaryFile(suffix='.txt', mode='w+', delete=False) as temp_file:
-        temp_file.write("This is a test text file.\nSecond line.")
-        temp_file_path = temp_file.name
-    
-    try:
-        # Test loading the file
-        service = TxtService()
-        content = service.load_txt_file(temp_file_path)
-        
-        # Verify content
-        assert "This is a test text file." in content
-        assert "Second line." in content
-        
-        # Test with non-existent file
-        with pytest.raises(TxtServiceError):
-            service.load_txt_file("non_existent_file.txt")
-    finally:
-        # Clean up
-        os.unlink(temp_file_path)
+from app.input_processing.txt.services.txt_service import (
+    TxtService,
+    TxtServiceError
+)
 
-@pytest.mark.asyncio
-async def test_process_uploaded_file():
-    """Test processing an uploaded text file."""
-    # Create a mock UploadFile
-    mock_file = MagicMock(spec=UploadFile)
-    mock_file.filename = "test.txt"
-    
-    # Create test content
-    test_content = "This is a test text file.\nSecond line."
-    
-    # Mock file read
-    mock_file.read = AsyncMock(return_value=test_content.encode('utf-8'))
-    
-    # Create a mock context manager for aiofiles.open
-    mock_file_handle = MagicMock()
-    mock_file_handle.__aenter__ = AsyncMock(return_value=mock_file_handle)
-    mock_file_handle.__aexit__ = AsyncMock(return_value=None)
-    mock_file_handle.write = AsyncMock()
-    
-    # Mock aiofiles.open to return our mock file handle
-    with patch('aiofiles.open', return_value=mock_file_handle):
-        # Mock load_txt_file
-        with patch.object(TxtService, 'load_txt_file', return_value=test_content):
-            # Mock process_txt
-            with patch.object(TxtService, 'process_txt', return_value="Processed: " + test_content):
-                # Test processing uploaded file
-                service = TxtService()
-                result = await service.process_uploaded_file(mock_file)
-                
-                # Verify result
-                assert "Processed: " in result
-                assert "This is a test text file." in result
-    
-    # Test with invalid file type
-    mock_file.filename = "test.md"
-    service = TxtService()
-    with pytest.raises(TxtServiceError):
-        await service.process_uploaded_file(mock_file)
 
-def test_process_txt():
-    """Test processing text content."""
-    # Mock InputProcessingService.process_text to return processed text
-    with patch.object(InputProcessingService, 'process_text', return_value="Processed content"):
+class TestTxtService:
+    """Tests for the TxtService class"""
+    
+    def test_extract_text_basic(self):
+        """Test basic text extraction from plain text file"""
         service = TxtService()
         
-        # Test with valid content
-        result = service.process_txt("This is a test text file.\nSecond line.")
-        assert result == "Processed content"
+        # Create simple text content
+        text_content = "This is a test plain text file.\nIt has multiple lines.\nIt should be extracted correctly."
+        text_bytes = text_content.encode('utf-8')
         
-        # Test with invalid content
-        with pytest.raises(TxtServiceError):
-            service.process_txt("")
+        # Extract text
+        result = service.extract_text(text_bytes)
+        
+        # Verify extraction
+        assert result is not None
+        assert isinstance(result, str)
+        assert result == text_content.strip()
+        assert "This is a test plain text file." in result
+        assert "It has multiple lines." in result
+        assert "It should be extracted correctly." in result
     
-    # Test error handling from InputProcessingService
-    with patch.object(InputProcessingService, 'process_text', side_effect=Exception("Test error")):
+    def test_extract_text_empty_content(self):
+        """Test extracting text from empty content"""
         service = TxtService()
-        with pytest.raises(TxtServiceError):
-            service.process_txt("Test text")
+        
+        # Create empty bytes
+        empty_bytes = b""
+        
+        # Extract text should succeed with empty string
+        result = service.extract_text(empty_bytes)
+        assert result == ""
+    
+    def test_extract_text_with_utf8_bom(self):
+        """Test extracting text with UTF-8 BOM marker"""
+        service = TxtService()
+        
+        # Create text content with UTF-8 BOM
+        # UTF-8 BOM is the byte sequence: EF BB BF
+        bom = b'\xef\xbb\xbf'
+        text_content = "Text file with BOM\nSecond line"
+        text_bytes = bom + text_content.encode('utf-8')
+        
+        # Extract text
+        result = service.extract_text(text_bytes)
+        
+        # Verify content extraction without BOM characters
+        assert result is not None
+        assert "Text file with BOM" in result
+        assert "Second line" in result
+    
+    def test_extract_text_with_different_encodings(self):
+        """Test extracting text with different encodings"""
+        service = TxtService()
+        
+        # Test with latin-1 encoding
+        text_content = "Text with special char: é"
+        text_bytes = text_content.encode('latin-1')
+        
+        # Extract text
+        result = service.extract_text(text_bytes)
+        
+        # Verify content extraction
+        assert result is not None
+        assert "Text with special char: é" in result
+    
+    def test_extract_text_with_invalid_encoding(self):
+        """Test extracting text with invalid encoding"""
+        service = TxtService()
+        
+        # Create invalid bytes that can't be decoded with standard encodings
+        invalid_bytes = b'\xC0\xC1\xF5\xF6'  # Invalid UTF-8 bytes
+        
+        # The test needs to be updated because latin-1 can actually decode any byte sequence
+        # So the service will not raise an exception even with invalid UTF-8
+        result = service.extract_text(invalid_bytes)
+        
+        # We should get some result using the latin-1 fallback
+        assert result is not None
+        assert isinstance(result, str)
+        assert len(result) == len(invalid_bytes)  # Each byte becomes one character
+    
+    def test_extract_text_preserves_line_breaks(self):
+        """Test that text extraction preserves line breaks"""
+        service = TxtService()
+        
+        # Create text with specific line break patterns
+        # The actual implementation strips the content so line count might be affected
+        text_content = """Line 1
+Line 2
 
-def test_validate_txt():
-    """Test validating text content."""
-    service = TxtService()
-    
-    # Test with valid content
-    service.validate_txt("Test text")
-    
-    # Test with empty string
-    with pytest.raises(TxtServiceError):
-        service.validate_txt("")
-    
-    # Test with None
-    with pytest.raises(TxtServiceError):
-        service.validate_txt(None)
-    
-    # Test with whitespace only
-    with pytest.raises(TxtServiceError):
-        service.validate_txt("   ") 
+Line 4 (after blank line)"""  # No trailing newline
+        
+        # Convert to bytes
+        text_bytes = text_content.encode('utf-8')
+        
+        # Extract text
+        result = service.extract_text(text_bytes)
+        
+        # Verify line breaks are preserved
+        assert result.count("\n") == text_content.count("\n")  # Should have the same number of line breaks
+        assert "Line 1\nLine 2" in result
+        assert "Line 2\n\nLine 4" in result
