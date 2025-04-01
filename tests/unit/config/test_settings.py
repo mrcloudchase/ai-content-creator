@@ -62,40 +62,13 @@ class TestOpenAISettings:
         settings = OpenAISettings(api_key="test", default_model="o1-preview")
         assert settings.model_family == "o1"
     
-    def test_model_encoding_property(self):
-        """Test the model_encoding property"""
-        # Test with tiktoken
-        with patch("app.config.settings.tiktoken.encoding_for_model") as mock_encoding:
-            # Set up the mock
-            mock_encoding_obj = MagicMock()
-            mock_encoding_obj.name = "test-encoding"
-            mock_encoding.return_value = mock_encoding_obj
-            
-            # Create settings and check encoding
-            settings = OpenAISettings(api_key="test", default_model="gpt-4")
-            
-            # First test the direct encoding lookup
-            encoding = settings.model_encoding
-            assert encoding == "test-encoding"
-            mock_encoding.assert_called_once_with("gpt-4")
-    
-    def test_model_encoding_property_fallback(self):
-        """Test the model_encoding property fallback behavior"""
-        # Test fallback when tiktoken.encoding_for_model raises an exception
-        with patch("app.config.settings.tiktoken.encoding_for_model", side_effect=Exception("Not found")):
-            # Create settings with a GPT model
-            settings = OpenAISettings(api_key="test", default_model="gpt-4")
-            
-            # Check that we get the fallback encoding
-            encoding = settings.model_encoding
-            assert encoding == "cl100k_base"
-            
-            # Create settings with an o-series model
-            settings = OpenAISettings(api_key="test", default_model="o1-preview")
-            
-            # Check that we get the fallback encoding
-            encoding = settings.model_encoding
-            assert encoding == "cl100k_base"
+    def test_encoding_property(self):
+        """Test the encoding property"""
+        # Test with direct access
+        settings = OpenAISettings(api_key="test", default_model="gpt-4", encoding="cl100k_base")
+        
+        # Check encoding
+        assert settings.encoding == "cl100k_base"
     
     def test_model_settings_property(self):
         """Test the model_settings property"""
@@ -107,7 +80,7 @@ class TestOpenAISettings:
             mock_get_encoding.return_value = mock_encoding
             
             # Create settings
-            settings = OpenAISettings(api_key="test", default_model="gpt-4")
+            settings = OpenAISettings(api_key="test", default_model="gpt-4", encoding="cl100k_base")
             
             # Get model settings
             model_settings = settings.model_settings

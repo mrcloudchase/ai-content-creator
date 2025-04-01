@@ -1,4 +1,4 @@
-from pydantic import field_validator, ConfigDict, Field
+from pydantic import field_validator, ConfigDict, Field, model_validator
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
 from typing import Optional, Dict, Any
@@ -26,24 +26,83 @@ print(f"\nLoading model from .env: {DEFAULT_MODEL}")
 
 class OpenAISettings(BaseSettings):
     """Settings for OpenAI API integration"""
-    model_config = ConfigDict(env_prefix="OPENAI_")
     
-    api_key: str
-    organization: Optional[str] = None
-    default_model: str = Field(default="gpt-4", env="DEFAULT_MODEL")
-    temperature: float = 0.7
-    max_tokens: int = 150
+    # Standard OpenAI settings
+    api_key: Optional[str] = Field(None, validation_alias="OPENAI_API_KEY")
+    organization: Optional[str] = Field(None, validation_alias="OPENAI_ORGANIZATION")
+    default_model: str = Field("gpt-4", validation_alias="OPENAI_DEFAULT_MODEL")
+    encoding: str = Field("cl100k_base")
+    max_tokens: int = Field(4000, validation_alias="MAX_TOKENS")
+    temperature: float = Field(0.7, validation_alias="OPENAI_TEMPERATURE")
+    
+    # Azure OpenAI settings
+    azure_endpoint: Optional[str] = Field(None, validation_alias="AZURE_OPENAI_ENDPOINT")
+    azure_deployment_name: Optional[str] = Field(None, validation_alias="AZURE_OPENAI_DEPLOYMENT_NAME")
+    azure_api_version: str = Field("2023-12-01-preview", validation_alias="AZURE_OPENAI_API_VERSION")
+    
+    # Configuration mode detection
+    @property
+    def use_azure(self) -> bool:
+        """Determine if we should use Azure OpenAI based on available configuration"""
+        return bool(self.azure_endpoint and self.azure_deployment_name)
+    
+    # Model validator to ensure at least one auth method is configured
+    @model_validator(mode='after')
+    def validate_auth_config(self):
+        """Validate that either OpenAI API key or Azure OpenAI settings are provided"""
+        has_openai_auth = bool(self.api_key)
+        has_azure_auth = bool(self.azure_endpoint and self.azure_deployment_name)
+        
+        if not (has_openai_auth or has_azure_auth):
+            raise ValueError(
+                "Either OpenAI API key or Azure OpenAI credentials (endpoint + deployment name) must be provided"
+            )
+        
+        return self
+    
+    @property
+    def model_config(self) -> Dict[str, Any]:
+        """Dynamic model configuration based on selected provider"""
+        # Base configuration that works for both
+        config = {
+            "model": self.default_model,
+            "encoding": self.encoding,
+            "max_tokens": self.max_tokens,
+            "context_window": 8192,  # Default - can be different per model
+            "model_family": "gpt-4",  # Default
+            "capabilities": {
+                "vision": False,
+                "function_calling": True,
+                "json_mode": True,
+            }
+        }
+        
+        # Adjust config based on model name
+        if "gpt-4" in self.default_model:
+            config["model_family"] = "gpt-4"
+            config["context_window"] = 8192
+        elif "gpt-3.5" in self.default_model:
+            config["model_family"] = "gpt-3.5-turbo"
+            config["context_window"] = 4096
+        
+        # If using Azure, add deployment info
+        if self.use_azure:
+            config["azure_deployment"] = self.azure_deployment_name
+            config["azure_endpoint"] = self.azure_endpoint
+            config["azure_api_version"] = self.azure_api_version
+        
+        return config
+    
+    model_config = {
+        "env_file": ".env",
+        "extra": "ignore",  # Ignore extra env vars
+        "protected_namespaces": ("settings_",)  # Avoid model_encoding conflict with model_ prefix
+    }
     
     @property
     def model_family(self) -> str:
         """Get the model family (gpt, o1, o3, etc.)"""
         return self.default_model.split('-')[0]
-    
-    @field_validator('api_key')
-    @classmethod
-    def validate_api_key(cls, v):
-        assert v, "OpenAI API key is required"
-        return v
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -53,23 +112,6 @@ class OpenAISettings(BaseSettings):
         print(f"Using max_tokens parameter consistently across all model families")
     
     @property
-    def model_encoding(self) -> str:
-        """Dynamically get encoding for the configured model"""
-        try:
-            # Try to get encoding directly from model name
-            return tiktoken.encoding_for_model(self.default_model).name
-        except Exception as e:
-            # If that fails, try to determine encoding based on model family
-            model_family = self.default_model.split('-')[0]
-            if model_family in ['gpt']:
-                return "cl100k_base"
-            elif model_family in ['o1', 'o3']:
-                return "cl100k_base"
-            else:
-                # Default to cl100k_base for unknown models
-                return "cl100k_base"
-    
-    @property
     def model_settings(self) -> Dict[str, Any]:
         """Dynamically get configuration for the configured model"""
         try:
@@ -77,7 +119,7 @@ class OpenAISettings(BaseSettings):
             model_family = self.default_model.split('-')[0]
             
             # Get encoding
-            encoding = tiktoken.get_encoding(self.model_encoding)
+            encoding = tiktoken.get_encoding(self.encoding)
             
             # Determine context window based on model family
             context_window = encoding.max_tokens

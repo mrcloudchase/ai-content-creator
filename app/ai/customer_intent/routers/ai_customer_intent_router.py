@@ -135,7 +135,7 @@ def validate_token_count(processed_text: str, req_logger = logger) -> Dict[str, 
         # Log model configuration
         req_logger.debug(f"Current model: {openai_settings.default_model}")
         print(f"Current model: {openai_settings.default_model}")
-        req_logger.debug(f"Model encoding: {openai_settings.model_encoding}")
+        req_logger.debug(f"Model encoding: {openai_settings.encoding}")
         
         # Validate tokens using tokenizer service
         req_logger.debug("Calling tokenizer service validate_tokens")

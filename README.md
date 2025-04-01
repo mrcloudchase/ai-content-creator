@@ -18,8 +18,14 @@ A FastAPI backend for processing documents and generating AI-powered customer in
   - [Execution Flow](#execution-flow)
   - [Development Setup](#development-setup)
   - [Running the Application](#running-the-application)
+  - [Azure OpenAI Integration](#azure-openai-integration)
   - [Testing](#testing)
   - [Adding New File Types](#adding-new-file-types)
+- [Containerization & Deployment](#containerization-deployment)
+  - [Building the Docker Container](#building-the-docker-container)
+  - [Running Locally with Docker](#running-locally-with-docker)
+  - [Deploying to Azure App Service](#deploying-to-azure-app-service)
+  - [Troubleshooting](#troubleshooting)
 
 ## Overview
 
@@ -299,17 +305,75 @@ When a file is uploaded to the API endpoint, the following execution sequence oc
 
 ### Running the Application
 
-Start the development server:
-```bash
-python server.py
-```
+1. Start the application using:
+   ```bash
+   python server.py
+   ```
 
-The API will be available at:
-- API: http://localhost:8000
-- Documentation: http://localhost:8000/docs
-- Health check: http://localhost:8000/health
+2. Access the API documentation at `http://localhost:8000/docs`
 
-The server will automatically reload when code changes are detected, thanks to the `reload=True` parameter in server.py.
+3. To deploy to production, you can containerize using the provided Dockerfile or deploy directly to Azure App Service.
+
+### Azure OpenAI Integration
+
+The application supports both standard OpenAI API and Azure OpenAI Service with managed identity authentication.
+
+#### Configuring Azure OpenAI
+
+To use Azure OpenAI with managed identity:
+
+1. Comment out the standard OpenAI configuration in your `.env` file
+2. Uncomment the Azure OpenAI configuration section
+3. Update with your Azure OpenAI details:
+   ```
+   # Standard OpenAI (commented out)
+   # OPENAI_API_KEY=sk-your-api-key-here
+   # OPENAI_ORGANIZATION=org-your-org-id-here
+
+   # Azure OpenAI (uncommented)
+   AZURE_OPENAI_ENDPOINT=https://your-resource-name.openai.azure.com/
+   AZURE_OPENAI_DEPLOYMENT_NAME=your-deployment-name
+   AZURE_OPENAI_API_VERSION=2023-12-01-preview
+   ```
+
+4. Restart the application for changes to take effect
+
+#### Azure App Service Deployment with Managed Identity
+
+When deploying to Azure App Service, you can use managed identity for secure authentication:
+
+1. Enable system-assigned managed identity on your App Service:
+   ```bash
+   az webapp identity assign --name <app-name> --resource-group <resource-group>
+   ```
+
+2. Grant the identity access to your Azure OpenAI resource:
+   ```bash
+   # Get the principal ID
+   principalId=$(az webapp identity show --name <app-name> --resource-group <resource-group> --query principalId -o tsv)
+   
+   # Assign the "Cognitive Services OpenAI User" role
+   az role assignment create \
+     --assignee $principalId \
+     --role "Cognitive Services OpenAI User" \
+     --scope /subscriptions/<subscription-id>/resourceGroups/<resource-group>/providers/Microsoft.CognitiveServices/accounts/<openai-resource>
+   ```
+
+3. Configure App Service settings:
+   ```bash
+   az webapp config appsettings set --name <app-name> --resource-group <resource-group> --settings \
+     AZURE_OPENAI_ENDPOINT=https://your-resource-name.openai.azure.com/ \
+     AZURE_OPENAI_DEPLOYMENT_NAME=your-deployment-name \
+     AZURE_OPENAI_API_VERSION=2023-12-01-preview
+   ```
+
+#### Switching Between OpenAI and Azure OpenAI
+
+The application automatically detects which API to use based on the available configuration:
+- If `AZURE_OPENAI_ENDPOINT` and `AZURE_OPENAI_DEPLOYMENT_NAME` are defined, Azure OpenAI will be used
+- Otherwise, the application will use standard OpenAI with `OPENAI_API_KEY`
+
+This approach allows you to deploy the same application to different environments with different authentication mechanisms.
 
 ### Testing
 
@@ -371,4 +435,192 @@ To add support for a new file type:
 
 ---
 
-This README provides comprehensive guidance for both API consumers and developers. For any additional information or assistance, please contact the repository maintainers. 
+## Containerization & Deployment
+
+### Building the Docker Container
+
+The application can be containerized for consistent deployment. Build the Docker image with:
+
+```bash
+# Build for x86_64 architecture (required for Azure App Service)
+docker build --platform linux/amd64 -t ai-content-creator:latest .
+```
+
+### Running Locally with Docker
+
+#### Using Standard OpenAI API:
+```bash
+docker run -p 8080:80 \
+  -e OPENAI_API_KEY="your-api-key" \
+  -e OPENAI_DEFAULT_MODEL="gpt-4" \
+  -e MAX_TOKENS="4000" \
+  -e TEMPERATURE="0.7" \
+  ai-content-creator:latest
+```
+
+#### Using Azure OpenAI with Your Azure Credentials:
+```bash
+docker run -p 8080:80 \
+  -e AZURE_OPENAI_ENDPOINT="https://your-resource-name.openai.azure.com/" \
+  -e AZURE_OPENAI_DEPLOYMENT_NAME="your-deployment-name" \
+  -e AZURE_OPENAI_API_VERSION="2023-12-01-preview" \
+  -e OPENAI_DEFAULT_MODEL="gpt-4" \
+  -e MAX_TOKENS="4000" \
+  -e TEMPERATURE="0.7" \
+  -e OPENAI_API_KEY="" \
+  -v "$HOME/.azure:/home/appuser/.azure:ro" \
+  ai-content-creator:latest
+```
+
+Access the application at http://localhost:8080 - including the documentation at http://localhost:8080/docs
+
+### Deploying to Azure App Service
+
+#### 1. Push to Azure Container Registry (ACR)
+
+```bash
+# Login to Azure
+az login
+
+# Create ACR if needed
+az acr create --resource-group your-resource-group --name yourregistryname --sku Basic
+
+# Login to ACR
+az acr login --name yourregistryname
+
+# Tag and push your image
+ACR_LOGINSERVER=$(az acr show --name yourregistryname --query loginServer --output tsv)
+docker tag ai-content-creator:latest $ACR_LOGINSERVER/ai-content-creator:latest
+docker push $ACR_LOGINSERVER/ai-content-creator:latest
+```
+
+#### 2. Create App Service Plan & Web App
+
+```bash
+# Create App Service Plan
+az appservice plan create \
+  --name your-plan-name \
+  --resource-group your-resource-group \
+  --location eastus \
+  --is-linux \
+  --sku B1
+
+# Create Web App with container image
+az webapp create \
+  --resource-group your-resource-group \
+  --plan your-plan-name \
+  --name your-app-name \
+  --deployment-container-image-name "$ACR_LOGINSERVER/ai-content-creator:latest"
+
+# Configure ACR access
+az webapp config container set \
+  --name your-app-name \
+  --resource-group your-resource-group \
+  --docker-registry-server-url "https://$ACR_LOGINSERVER" \
+  --docker-registry-server-user yourregistryname \
+  --docker-registry-server-password $(az acr credential show --name yourregistryname --query "passwords[0].value" --output tsv)
+```
+
+#### 3. Configure App Service Settings
+
+```bash
+# Essential configuration for container
+az webapp config appsettings set \
+  --name your-app-name \
+  --resource-group your-resource-group \
+  --settings \
+  WEBSITES_PORT=80 \
+  WEBSITE_WARMUP_PATH="/robots933456.txt" \
+  WEBSITE_WARMUP_STATUSES="200" \
+  LOG_LEVEL="info" \
+  ENVIRONMENT="production"
+```
+
+#### 4a. Configure for OpenAI API
+
+```bash
+az webapp config appsettings set \
+  --name your-app-name \
+  --resource-group your-resource-group \
+  --settings \
+  OPENAI_API_KEY="your-openai-api-key" \
+  OPENAI_DEFAULT_MODEL="gpt-4" \
+  MAX_TOKENS="4000" \
+  TEMPERATURE="0.7" \
+  AZURE_OPENAI_ENDPOINT="" \
+  AZURE_OPENAI_DEPLOYMENT_NAME=""
+```
+
+#### 4b. Configure for Azure OpenAI with Managed Identity
+
+```bash
+# Enable system-assigned managed identity
+az webapp identity assign \
+  --name your-app-name \
+  --resource-group your-resource-group
+
+# Get the principal ID
+PRINCIPAL_ID=$(az webapp identity show \
+  --name your-app-name \
+  --resource-group your-resource-group \
+  --query principalId -o tsv)
+
+# Get Azure OpenAI resource ID
+OPENAI_NAME="your-openai-resource"
+OPENAI_ID=$(az cognitiveservices account show \
+  --name $OPENAI_NAME \
+  --resource-group your-resource-group \
+  --query id -o tsv)
+
+# Grant the managed identity "Cognitive Services OpenAI User" role
+az role assignment create \
+  --assignee $PRINCIPAL_ID \
+  --role "Cognitive Services OpenAI User" \
+  --scope $OPENAI_ID
+
+# Update settings for Azure OpenAI
+az webapp config appsettings set \
+  --name your-app-name \
+  --resource-group your-resource-group \
+  --settings \
+  OPENAI_API_KEY="" \
+  AZURE_OPENAI_ENDPOINT="https://$OPENAI_NAME.openai.azure.com/" \
+  AZURE_OPENAI_DEPLOYMENT_NAME="your-deployment-name" \
+  AZURE_OPENAI_API_VERSION="2023-12-01-preview" \
+  OPENAI_DEFAULT_MODEL="gpt-4" \
+  MAX_TOKENS="4000" \
+  TEMPERATURE="0.7"
+```
+
+#### 5. Restart and Access Your App
+
+```bash
+# Restart the app to apply configuration
+az webapp restart --name your-app-name --resource-group your-resource-group
+
+# Get the app URL
+APP_URL=$(az webapp show --name your-app-name --resource-group your-resource-group --query defaultHostName -o tsv)
+echo "App URL: https://$APP_URL"
+```
+
+Access your application at `https://your-app-name.azurewebsites.net`
+
+### Troubleshooting
+
+If encountering issues:
+
+1. Check container logs:
+   ```bash
+   az webapp log tail --name your-app-name --resource-group your-resource-group
+   ```
+
+2. Verify the container is running:
+   ```bash
+   az webapp config container show --name your-app-name --resource-group your-resource-group
+   ```
+
+3. Common issues:
+   - Incorrect platform (build with `--platform=linux/amd64`)
+   - Missing environment variables
+   - Azure role assignment failed
+   - Docker image not accessible
