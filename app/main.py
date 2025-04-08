@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
 from app.ai.customer_intent.routers.ai_customer_intent_router import router as customer_intent_router
+from app.ai.content_types.routers.content_type_router import router as content_type_router
 from app.shared.logging import setup_app_logging, LoggingMiddleware, app_logger
 import os
 import datetime
@@ -26,6 +27,12 @@ app.include_router(
     prefix=API_V1_PREFIX
 )
 
+# Include the Content Type router with proper prefix
+app.include_router(
+    content_type_router,
+    prefix=API_V1_PREFIX
+)
+
 # Azure App Service warmup endpoint
 @app.get("/robots933456.txt")
 async def warmup():
@@ -48,7 +55,8 @@ async def root(request: Request):
         "endpoints": {
             "health": "/health",
             "api_base": API_V1_PREFIX,
-            "customer_intent": f"{API_V1_PREFIX}/customer-intent - Upload a document to generate customer intent statement"
+            "customer_intent": f"{API_V1_PREFIX}/customer-intent - Upload a document to generate customer intent statement",
+            "content_types": f"{API_V1_PREFIX}/content-types - Select content types based on customer intent and source text"
         }
     }
 

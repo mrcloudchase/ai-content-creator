@@ -323,15 +323,15 @@ When a file is uploaded to the API endpoint, the following execution sequence oc
    APP_LOGGING_LOG_DIR=logs
    APP_LOGGING_LOG_FILE_NAME=ai_content_developer.log
    APP_LOGGING_MAX_LOG_FILE_SIZE_MB=5
-   APP_LOGGING_BACKUP_COUNT=3 
+   APP_LOGGING_BACKUP_COUNT=3
    ```
 
 ### Running the Application
 
 1. Start the application using:
-   ```bash
-   python server.py
-   ```
+```bash
+python server.py
+```
 
 2. Access the API documentation at `http://localhost:8000/docs`
 
