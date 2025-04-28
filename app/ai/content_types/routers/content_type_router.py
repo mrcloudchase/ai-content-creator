@@ -184,7 +184,7 @@ def format_response(selected_types: List[ContentTypeSelection], token_info: Dict
         req_logger.error(f"Error traceback: {traceback.format_exc()}")
         raise ContentTypeRouterError(f"Error formatting response: {str(e)}")
 
-@router.post("/content-types", response_model=ContentTypeResponse)
+@router.post("", response_model=ContentTypeResponse)
 async def select_content_types_endpoint(
     request: ContentTypeRequest
 ) -> ContentTypeResponse:
