@@ -1,6 +1,6 @@
 # AI Content Creator
 
-A FastAPI backend for processing documents and generating AI-powered customer intent statements based on document input.
+A FastAPI backend for processing documents, generating customer intent statements, suggesting content types, and creating AI-powered content based on document input.
 
 ## Table of Contents
 
@@ -8,7 +8,9 @@ A FastAPI backend for processing documents and generating AI-powered customer in
 - [For API Consumers](#for-api-consumers)
   - [API Endpoints](#api-endpoints)
   - [Using the Customer Intent Endpoint](#using-the-customer-intent-endpoint)
-  - [API Response Format](#api-response-format)
+  - [Using the Content Types Endpoint](#using-the-content-types-endpoint)
+  - [Using the Content Generate Endpoint](#using-the-content-generate-endpoint)
+  - [API Response Formats](#api-response-formats)
   - [Error Handling](#error-handling)
   - [Using cURL](#using-curl)
   - [Python Client Example](#python-client-example)
@@ -29,7 +31,13 @@ A FastAPI backend for processing documents and generating AI-powered customer in
 
 ## Overview
 
-This application processes document files (.docx, .md, .txt) and leverages OpenAI's models to generate customer intent statements in the format: "As a [user type], I want to [action] because [reason]". The application handles file upload, text extraction, token validation, and AI content generation in a seamless workflow.
+This application provides a complete AI content creation workflow. It processes document files (.docx, .md, .txt), extracts text, and uses OpenAI's models to:
+
+1. Generate customer intent statements in the format: "As a [user type], I want to [action] because [reason]"
+2. Recommend appropriate content types based on the Diátaxis framework (Tutorials, How-To Guides, Explanations, Reference)
+3. Generate complete, structured content for each selected content type
+
+The application handles file upload, text extraction, token validation, and AI content generation in a seamless workflow.
 
 ---
 
@@ -42,6 +50,8 @@ This application processes document files (.docx, .md, .txt) and leverages OpenA
 | GET | `/` | API information with available endpoints |
 | GET | `/health` | Health check endpoint for monitoring |
 | POST | `/api/v1/customer-intent` | Generate customer intent from document |
+| POST | `/api/v1/content-types` | Recommend content types based on customer intent and text |
+| POST | `/api/v1/content-generate` | Generate detailed content for selected content types |
 
 ### Using the Customer Intent Endpoint
 
@@ -50,9 +60,39 @@ Send a POST request to `/api/v1/customer-intent` with a file in the request body
 - Form field name: `file`
 - Supported file types: `.docx`, `.md`, `.txt`
 
-### API Response Format
+### Using the Content Types Endpoint
 
-Successful response (200 OK):
+Send a POST request to `/api/v1/content-types` with a JSON body:
+```json
+{
+  "intent": "As a marketing manager, I want to create engaging content about our new product because I need to increase customer awareness",
+  "text_used": "Text content extracted from the document..."
+}
+```
+
+### Using the Content Generate Endpoint
+
+Send a POST request to `/api/v1/content-generate` with a JSON body:
+```json
+{
+  "intent": "As a marketing manager, I want to create engaging content about our new product because I need to increase customer awareness",
+  "text_used": "Text content extracted from the document...",
+  "content_types": [
+    {
+      "type": "tutorial",
+      "title": "Getting Started with Our New Product"
+    },
+    {
+      "type": "how-to",
+      "title": "How to Maximize Results with Our New Product"
+    }
+  ]
+}
+```
+
+### API Response Formats
+
+**Customer Intent Response (200 OK):**
 ```json
 {
   "intent": "As a [user type], I want to [action] because [reason]",
@@ -75,32 +115,86 @@ Successful response (200 OK):
 }
 ```
 
+**Content Types Response (200 OK):**
+```json
+{
+  "selected_types": [
+    {
+      "type": "tutorial",
+      "confidence": 0.9,
+      "reasoning": "The content is well-suited for a tutorial because it involves a step-by-step learning process..."
+    },
+    {
+      "type": "how-to",
+      "confidence": 0.8,
+      "reasoning": "The content contains practical problem-solving steps that would work well as a how-to guide..."
+    }
+  ],
+  "model": "gpt-4",
+  "model_family": "gpt",
+  "capabilities": {
+    "supports_functions": true,
+    "supports_vision": false,
+    "supports_embeddings": true
+  },
+  "usage": {
+    "prompt_tokens": 456,
+    "completion_tokens": 78,
+    "total_tokens": 534
+  },
+  "token_limit": 8192,
+  "token_count": 1500,
+  "remaining_tokens": 6692,
+  "text_used": "Text content used for content type selection..."
+}
+```
+
+**Content Generate Response (200 OK):**
+```json
+{
+  "generated_content": [
+    {
+      "type": "tutorial",
+      "title": "Getting Started with Our New Product",
+      "content": "# Getting Started with Our New Product\n\n## Introduction\nThis tutorial will guide you through..."
+    },
+    {
+      "type": "how-to",
+      "title": "How to Maximize Results with Our New Product",
+      "content": "# How to Maximize Results with Our New Product\n\n## Overview\nThis guide explains how to..."
+    }
+  ],
+  "model": "gpt-4",
+  "model_family": "gpt",
+  "capabilities": {
+    "supports_functions": true,
+    "supports_vision": false,
+    "supports_embeddings": true
+  },
+  "usage": {
+    "prompt_tokens": 789,
+    "completion_tokens": 1234,
+    "total_tokens": 2023
+  },
+  "token_limit": 8192,
+  "token_count": 3000,
+  "remaining_tokens": 5192,
+  "text_used": "Text content used for content generation..."
+}
+```
+
 ### Error Handling
 
 | Status Code | Description | Resolution |
 |-------------|-------------|------------|
-| 400 | Bad Request - Invalid input | Check file format and contents |
+| 400 | Bad Request - Invalid input | Check file format, content, or request body |
 | 413 | Request Entity Too Large | Document exceeds token limit, use shorter document |
 | 415 | Unsupported Media Type | Use a supported file type (.docx, .md, .txt) |
 | 500 | Internal Server Error | Server issue, retry later |
 
 ### Using cURL
 
-You can use cURL to test the API from the command line:
-
-```bash
-curl -X POST \
-  -F "file=@/path/to/your/document.docx" \
-  https://url/api/v1/customer-intent
-```
-
-Where:
-- `-X POST` specifies the HTTP method
-- `-F "file=@/path/to/your/document.docx"` uploads the file as form data
-- Replace `/path/to/your/document.docx` with the actual path to your document
-- Replace `https://your-app-name.azurewebsites.net` with your deployed API URL
-
-For local testing, use:
+#### Customer Intent Endpoint:
 
 ```bash
 curl -X POST \
@@ -108,33 +202,59 @@ curl -X POST \
   http://localhost:8000/api/v1/customer-intent
 ```
 
-To save the response to a file:
+#### Content Types Endpoint:
 
 ```bash
 curl -X POST \
-  -F "file=@/path/to/your/document.docx" \
-  http://localhost:8000/api/v1/customer-intent \
-  -o response.json
+  -H "Content-Type: application/json" \
+  -d '{
+    "intent": "As a marketing manager, I want to create engaging content about our new product because I need to increase customer awareness",
+    "text_used": "Your document text here..."
+  }' \
+  http://localhost:8000/api/v1/content-types
+```
+
+#### Content Generate Endpoint:
+
+```bash
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "intent": "As a marketing manager, I want to create engaging content about our new product because I need to increase customer awareness",
+    "text_used": "Your document text here...",
+    "content_types": [
+      {
+        "type": "tutorial",
+        "title": "Getting Started with Our New Product"
+      },
+      {
+        "type": "how-to",
+        "title": "How to Maximize Results with Our New Product"
+      }
+    ]
+  }' \
+  http://localhost:8000/api/v1/content-generate
 ```
 
 ### Python Client Example
 
 ```python
 import requests
+import json
 
-def generate_customer_intent(file_path, api_url):
+def generate_content_workflow(file_path, api_url):
     """
-    Generate customer intent by uploading a document to the API
+    Complete content generation workflow using the API
     
     Args:
         file_path: Path to the document file (.docx, .md, or .txt)
         api_url: Base URL of the deployed API
     
     Returns:
-        Dictionary containing the customer intent and metadata
+        Generated content for each content type
     """
-    # API endpoint
-    endpoint = f"{api_url}/api/v1/customer-intent"
+    # Step 1: Generate customer intent
+    intent_endpoint = f"{api_url}/api/v1/customer-intent"
     
     # Open the file in binary mode
     with open(file_path, 'rb') as file:
@@ -144,37 +264,88 @@ def generate_customer_intent(file_path, api_url):
         }
         
         # Make the POST request
-        response = requests.post(endpoint, files=files)
+        intent_response = requests.post(intent_endpoint, files=files)
     
-    # Raise an exception for HTTP errors
-    response.raise_for_status()
+    # Check for errors
+    intent_response.raise_for_status()
+    intent_data = intent_response.json()
     
-    # Return the JSON response
-    return response.json()
+    print(f"Generated Intent: {intent_data['intent']}")
+    
+    # Step 2: Get content type recommendations
+    content_types_endpoint = f"{api_url}/api/v1/content-types"
+    content_types_request = {
+        "intent": intent_data["intent"],
+        "text_used": intent_data["text_used"]
+    }
+    
+    content_types_response = requests.post(
+        content_types_endpoint, 
+        json=content_types_request
+    )
+    
+    # Check for errors
+    content_types_response.raise_for_status()
+    content_types_data = content_types_response.json()
+    
+    print(f"Recommended content types:")
+    for content_type in content_types_data["selected_types"]:
+        print(f"- {content_type['type']} (confidence: {content_type['confidence']})")
+    
+    # Step 3: Generate content for selected types
+    content_generate_endpoint = f"{api_url}/api/v1/content-generate"
+    
+    # Prepare content types request - choose types with confidence > 0.5
+    selected_types = [
+        {"type": ct["type"]}
+        for ct in content_types_data["selected_types"]
+        if ct["confidence"] > 0.5
+    ]
+    
+    content_generate_request = {
+        "intent": intent_data["intent"],
+        "text_used": intent_data["text_used"],
+        "content_types": selected_types
+    }
+    
+    content_generate_response = requests.post(
+        content_generate_endpoint,
+        json=content_generate_request
+    )
+    
+    # Check for errors
+    content_generate_response.raise_for_status()
+    content_generate_data = content_generate_response.json()
+    
+    # Return the generated content
+    return content_generate_data
 
 # Example usage
 if __name__ == "__main__":
-    # Replace with your API URL (Azure App Service or other hosting)
-    api_url = "https://your-app-name.azurewebsites.net"
+    # Replace with your API URL
+    api_url = "http://localhost:8000"
     
     # File to upload
     document_path = "path/to/document.docx"
     
     try:
-        # Call the API
-        result = generate_customer_intent(document_path, api_url)
+        # Call the complete workflow
+        result = generate_content_workflow(document_path, api_url)
         
-        # Print the generated intent
-        print(f"Customer Intent: {result['intent']}")
-        print(f"Model used: {result['model']}")
-        print(f"Token usage: {result['usage']}")
+        # Print the titles of generated content
+        print("\nGenerated content:")
+        for content in result["generated_content"]:
+            print(f"- {content['type']}: {content['title']}")
+            
+        # Save the content to files
+        for content in result["generated_content"]:
+            filename = f"{content['type']}_{content['title'].replace(' ', '_')}.md"
+            with open(filename, 'w') as f:
+                f.write(content['content'])
+            print(f"Saved {filename}")
         
     except requests.exceptions.HTTPError as e:
         print(f"API request failed: {e}")
-        if e.response.status_code == 413:
-            print("Document exceeds token limit. Try a smaller document.")
-        elif e.response.status_code == 415:
-            print("Unsupported file type. Use .docx, .md, or .txt files.")
     except Exception as e:
         print(f"Error: {e}")
 ```
@@ -217,13 +388,28 @@ The project follows a feature-based organization:
 │   │   │   ├── services/
 │   │   │   │   ├── ai_core_service.py   # Core AI service for OpenAI
 │   │   │   │   └── tokenizer_core_service.py # Token counting
-│   │   └── customer_intent/
-│   │       ├── models/
-│   │       │   └── ai_customer_intent_model.py # Request/response models
-│   │       ├── routers/
-│   │       │   └── ai_customer_intent_router.py # Customer intent endpoint
-│   │       ├── services/
-│   │       │   └── ai_customer_intent_service.py # Intent prompt structure
+│   │   ├── customer_intent/
+│   │   │   ├── models/
+│   │   │   │   └── ai_customer_intent_model.py # Request/response models
+│   │   │   ├── routers/
+│   │   │   │   └── ai_customer_intent_router.py # Customer intent endpoint
+│   │   │   ├── services/
+│   │   │   │   └── ai_customer_intent_service.py # Intent prompt structure
+│   │   ├── content_types/
+│   │   │   ├── models/
+│   │   │   │   ├── content_type_model.py # Content type models
+│   │   │   │   └── content_types_config.py # Diátaxis framework definitions
+│   │   │   ├── routers/
+│   │   │   │   └── content_type_router.py # Content type endpoint
+│   │   │   ├── services/
+│   │   │   │   └── content_type_service.py # Content type prompt structure
+│   │   ├── content_generate/
+│   │   │   ├── models/
+│   │   │   │   └── content_generate_model.py # Content generation models
+│   │   │   ├── routers/
+│   │   │   │   └── content_generate_router.py # Content generation endpoint
+│   │   │   ├── services/
+│   │   │   │   └── content_generate_service.py # Content generation logic
 │   ├── shared/
 │   │   └── logging.py                   # Logging configuration
 │   ├── main.py                          # Application entry point
@@ -235,27 +421,28 @@ The project follows a feature-based organization:
 
 ### Execution Flow
 
-When a file is uploaded to the API endpoint, the following execution sequence occurs:
+The application supports a complete content creation workflow:
 
-1. **server.py** - Server startup file that imports and runs the FastAPI app
-2. **app/main.py** - Entry point that defines routes and receives the initial request
-3. **app/ai/customer_intent/routers/ai_customer_intent_router.py** - Handles the request and orchestrates the processing flow
-4. **File Type Detection & Processing**:
-   - **app/input_processing/core/services/file_handler_routing_logic_core_services.py** - Identifies file type
-   - Based on file type, one of:
-     - **app/input_processing/docx/services/docx_service.py** 
-     - **app/input_processing/markdown/services/markdown_service.py**
-     - **app/input_processing/txt/services/txt_service.py**
-5. **Text Processing**:
-   - **app/input_processing/core/services/input_processing_core_service.py** - Cleans and standardizes text
-6. **Token Validation**:
-   - **app/ai/core/services/tokenizer_core_service.py** - Counts tokens and checks limits
-   - **app/config/settings.py** - Provides model configuration for token limits
-7. **AI Processing**:
-   - **app/ai/customer_intent/services/ai_customer_intent_service.py** - Creates the prompt structure
-   - **app/ai/core/services/ai_core_service.py** - Communicates with OpenAI API
-8. **Response Formatting**:
-   - **app/ai/customer_intent/models/ai_customer_intent_model.py** - Defines the response structure
+1. **Customer Intent Generation**:
+   - User uploads a document to `/api/v1/customer-intent`
+   - File processing detects format and extracts text
+   - AI service generates a structured customer intent statement
+
+2. **Content Type Selection**:
+   - User sends intent and text to `/api/v1/content-types`
+   - AI analyzes content needs and recommends appropriate Diátaxis content types
+   - Service returns selected types with confidence scores and reasoning
+
+3. **Content Generation**:
+   - User sends intent, text, and selected content types to `/api/v1/content-generate`
+   - For each content type, AI generates complete structured content
+   - Service returns all generated content in markdown format
+
+Each step involves:
+1. **Token counting and validation** using `tokenizer_core_service.py`
+2. **Prompt formatting** using the corresponding service for that feature
+3. **AI processing** using the shared `ai_core_service.py`
+4. **Response formatting** in standardized JSON structure with metadata
 
 ### Development Setup
 
