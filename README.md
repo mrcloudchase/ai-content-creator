@@ -20,6 +20,7 @@ A FastAPI backend for processing documents, generating customer intent statement
   - [Execution Flow](#execution-flow)
   - [Development Setup](#development-setup)
   - [Running the Application](#running-the-application)
+  - [Using the Web UI Frontend](#using-the-web-ui-frontend)
   - [Azure OpenAI Integration](#azure-openai-integration)
   - [Testing](#testing)
   - [Adding New File Types](#adding-new-file-types)
@@ -523,6 +524,52 @@ python server.py
 2. Access the API documentation at `http://localhost:8000/docs`
 
 3. To deploy to production, you can containerize using the provided Dockerfile or deploy directly to Azure App Service.
+
+### Using the Web UI Frontend
+
+The project includes a Streamlit web-based frontend that provides a user-friendly interface for the content creation workflow.
+
+#### Running with Docker Compose
+
+The easiest way to run both the API and frontend together is using Docker Compose:
+
+1. **Create a `.env` file with your OpenAI API key**:
+   ```bash
+   cp .env-example .env
+   # Edit .env to add your OpenAI API key or Azure OpenAI settings
+   ```
+
+2. **Start both containers with Docker Compose**:
+   ```bash
+   docker compose up
+   ```
+
+3. **Access the applications**:
+   - Frontend UI: http://localhost:8501
+   - API: http://localhost:8000
+   - API Documentation: http://localhost:8000/docs
+
+#### Using the UI
+
+The Streamlit frontend provides a step-by-step workflow:
+
+1. **Upload a Document**: 
+   - Upload any `.docx`, `.md`, or `.txt` file
+   - Click "Generate Intent" to process the document
+
+2. **Review Customer Intent**:
+   - View the generated customer intent statement
+   - Click "Suggest Content Types" to continue
+
+3. **Select Content Types**:
+   - Choose from recommended content types
+   - Confidence scores indicate the relevance of each type
+   - Click "Generate Content" to create content for selected types
+
+4. **View and Download Content**:
+   - Each content type is displayed in a tab
+   - Copy or download the generated markdown
+   - Click "Start New Content Creation" to begin again
 
 ### Azure OpenAI Integration
 
